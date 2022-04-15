@@ -66,7 +66,7 @@ var (
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
-	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
+	flag.IntVar(&workerNum, "worker", 1, "concurrent worker")
 	flag.IntVar(&fileSizeMin, "minByte", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "maxByte", 100, "body maxlength (byte)")
 	flag.BoolVar(&write, "write", true, "enable write")
