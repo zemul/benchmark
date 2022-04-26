@@ -20,11 +20,19 @@ type stats struct {
 	end        time.Time
 	total      int
 }
+
 type stat struct {
-	completed   int
-	failed      int
-	total       int
-	transferred int64
+	completed    int
+	failed       int
+	total        int
+	transferred  int64
+	reqtransfer  int
+	resptransfer int
+}
+
+type Msg struct {
+	method string
+	url    string
 }
 
 var percentages = []int{50, 66, 75, 80, 90, 95, 98, 99, 100}

@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"flag"
+	flag "flag"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,29 +52,37 @@ var read bool
 var delete bool
 var urlListFilePath string
 var contentType string
+var requests int64
 
 var path string
 var param string
 var files int
 
 var (
-	wait       sync.WaitGroup
-	writeStats *stats
-	readStats  *stats
-	delStats   *stats
-	Addrs      []string
+	wait        sync.WaitGroup
+	GetStats    *stats
+	PostStats   *stats
+	HeadStats   *stats
+	DeleteStats *stats
+	PutStats    *stats
+
+	Addrs []Msg
 )
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
-	flag.IntVar(&workerNum, "worker", 1, "concurrent worker")
-	flag.IntVar(&fileSizeMin, "minByte", 10, "body minlength (byte)")
-	flag.IntVar(&fileSizeMax, "maxByte", 100, "body maxlength (byte)")
-	flag.BoolVar(&write, "write", true, "enable write")
-	flag.BoolVar(&read, "read", false, "enable read")
-	flag.BoolVar(&delete, "delete", true, "enable delete")
+	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
+	flag.Int64Var(&requests, "n", 0, "number of requests to perform")
+
+	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
+	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
+	flag.BoolVar(&write, "w", true, "enable write")
+	flag.BoolVar(&read, "r", false, "enable read")
+	flag.BoolVar(&delete, "d", true, "enable delete")
+
 	flag.StringVar(&urlListFilePath, "filepath", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
+
 	flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
 	flag.IntVar(&files, "genNum", 0, "Generating num")
 	flag.StringVar(&param, "genParam", "", "replication=000")
@@ -132,6 +141,116 @@ func benchRead() {
 	close(finishChan)
 	readStats.end = time.Now()
 	readStats.printStats()
+}
+
+func benchTest() {
+	finishChan := make(chan bool)
+	pathChan := make(chan Msg)
+	Stats = newStats(workerNum)
+	go ReadFileIds(urlListFilePath, pathChan, Stats)
+	for i := 0; i < workerNum; i++ {
+		wait.Add(1)
+		go ThreadTask(pathChan)
+	}
+	Stats.start = time.Now()
+	go Stats.checkProgress("Benchmark", finishChan)
+	wait.Wait()
+	Stats.end = time.Now()
+	wait.Add(1)
+	finishChan <- true
+	wait.Wait()
+	close(finishChan)
+	Stats.printStats()
+}
+
+func ThreadTask(pathChan chan Msg) {
+	defer wait.Done()
+	s.headStats = new(stat)
+	s.getStats = new(stat)
+	s.postStats = new(stat)
+	s.delStats = new(stat)
+	s.putStats = new(stat)
+
+	random := rand.New(rand.NewSource(time.Now().UnixNano()))
+	var reqLen, respLen int
+	var err error
+	for row := range pathChan {
+		reqLen, respLen, err = 0, 0, nil
+		start := time.Now()
+		switch row.method {
+		case http.MethodGet:
+			{
+				if reqLen, respLen, _, err = Get(row.url); err == nil {
+					s.getStats.completed++
+					s.getStats.reqtransfer += reqLen
+					s.getStats.resptransfer += respLen
+				} else {
+					s.getStats.failed++
+				}
+
+			}
+		case http.MethodPost:
+			{
+				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
+				reqLen, respLen, err = Upload(reader, &UploadOption{
+					Method:    row.method,
+					UploadUrl: row.url,
+					Filename:  filepath.Base(row.url),
+					MimeType:  contentType,
+				})
+				if err == nil {
+					s.postStats.completed++
+					s.postStats.reqtransfer += reqLen
+					s.postStats.resptransfer += respLen
+				} else {
+					s.postStats.failed++
+
+				}
+			}
+		case http.MethodPut:
+			{
+				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
+				reqLen, respLen, err = Upload(reader, &UploadOption{
+					Method:    row.method,
+					UploadUrl: row.url,
+					Filename:  filepath.Base(row.url),
+					MimeType:  contentType,
+				})
+				if err == nil {
+					s.putStats.completed++
+					s.putStats.reqtransfer += reqLen
+					s.putStats.resptransfer += respLen
+				} else {
+					s.putStats.failed++
+
+				}
+			}
+		case http.MethodDelete:
+			{
+				if reqLen, respLen, err = Delete(row.url); err == nil {
+					s.delStats.completed++
+					s.delStats.reqtransfer += reqLen
+					s.delStats.resptransfer += respLen
+				} else {
+					s.delStats.failed++
+				}
+			}
+		case http.MethodHead:
+			{
+				if reqLen, respLen, err = Head(row.url); err == nil {
+					s.headStats.completed++
+					s.headStats.reqtransfer += reqLen
+					s.headStats.resptransfer += respLen
+				} else {
+					s.headStats.failed++
+				}
+			}
+		}
+		s.getStats(time.Now().Sub(start))
+
+	}
 }
 
 func benchWrite() {
@@ -203,12 +322,11 @@ func WriteToRemote(pathChan chan string, s *stat) {
 			s.failed++
 		}
 		writeStats.addSample(time.Now().Sub(start))
-
 	}
 }
 
-func ReadFileIds(urlListFilePath string, pathChan chan string, stats *stats) {
-	Addrs = []string{}
+func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
+	Addrs = []Msg{}
 	f, err := os.Open(urlListFilePath)
 	if err != nil {
 		log.Fatalf("File to read file %s: %s\n", urlListFilePath, err)
@@ -216,15 +334,40 @@ func ReadFileIds(urlListFilePath string, pathChan chan string, stats *stats) {
 	defer f.Close()
 	r := bufio.NewReader(f)
 	for {
+		if stats.total > int(requests) {
+			break
+		}
 		line, _, err := r.ReadLine()
 		if err != nil || err == io.EOF {
 			break
 		}
-		Addrs = append(Addrs, string(line))
+		raw := strings.Split(string(line), ",")
+		msg := Msg{method: strings.ToUpper(raw[0]),
+			url: raw[1],
+		}
+
+		Addrs = append(Addrs, msg)
 		stats.total += 1
 	}
-	for i := range Addrs {
-		pathChan <- Addrs[i]
+	var cnt int64
+	// not input -n
+	if requests == 0 {
+		for i := range Addrs {
+			cnt += 1
+			pathChan <- Addrs[i]
+		}
+		close(pathChan)
+		return
+	}
+
+	for cnt < requests {
+		for i := range Addrs {
+			cnt += 1
+			pathChan <- Addrs[i]
+			if cnt >= requests {
+				break
+			}
+		}
 	}
 	close(pathChan)
 }

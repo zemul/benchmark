@@ -41,31 +41,73 @@ type UploadOption struct {
 	PairMap   map[string]string
 }
 
-func Delete(url string) (err error) {
-	request, err := http.NewRequest("DELETE", url, nil)
+func Head(url string) (reqLen int, respLen int, err error) {
+	request, err := http.NewRequest("HEAD", url, nil)
+	reqBuf := GetBuffer()
+	defer PutBuffer(reqBuf)
+	request.Write(reqBuf)
+	reqLen = reqBuf.Len()
+
 	resp, err := HttpClient.Do(request)
 	if err != nil {
 		return
 	}
 	defer CloseResponse(resp)
+
+	respBuf := GetBuffer()
+	defer PutBuffer(respBuf)
+	resp.Header.Write(respBuf)
+	respLen = respBuf.Len()
+
 	switch resp.StatusCode {
 	case http.StatusNotFound, http.StatusAccepted, http.StatusOK, http.StatusNoContent:
-		return nil
+		return reqLen, respLen, err
 	}
-	body, err := io.ReadAll(resp.Body)
-	return fmt.Errorf("delete path:%s err, httpCode:%v,body:%s", url, resp.StatusCode, string(body))
+
+	return reqLen, respLen, fmt.Errorf("delete path:%s err, httpCode:%v", url, resp.StatusCode)
 }
 
-func Get(url string) ([]byte, int64, bool, error) {
+func Delete(url string) (reqLen int, respLen int, err error) {
+	request, err := http.NewRequest("DELETE", url, nil)
+	reqBuf := GetBuffer()
+	defer PutBuffer(reqBuf)
+	request.Write(reqBuf)
+	reqLen = reqBuf.Len()
+
+	resp, err := HttpClient.Do(request)
+	if err != nil {
+		return
+	}
+	defer CloseResponse(resp)
+
+	respBuf := GetBuffer()
+	defer PutBuffer(respBuf)
+	resp.Header.Write(respBuf)
+	respLen = respBuf.Len()
+
+	switch resp.StatusCode {
+	case http.StatusNotFound, http.StatusAccepted, http.StatusOK, http.StatusNoContent:
+		return reqLen, respLen, err
+	}
+	body, err := io.ReadAll(resp.Body)
+
+	return reqLen, respLen, fmt.Errorf("delete path:%s err, httpCode:%v,body:%s", url, resp.StatusCode, string(body))
+}
+
+func Get(url string) (reqLen int, respLen int, needRetry bool, err error) {
 
 	request, err := http.NewRequest("GET", url, nil)
 	request.Header.Add("Accept-Encoding", "gzip")
+	reqBuf := GetBuffer()
+	defer PutBuffer(reqBuf)
+	request.Write(reqBuf)
+	reqLen = reqBuf.Len()
 
 	response, err := HttpClient.Do(request)
 	if err != nil {
-		return nil, 0, true, err
+		return reqLen, respLen, true, err
 	}
-	defer response.Body.Close()
+	defer CloseResponse(response)
 
 	var reader io.ReadCloser
 	switch response.Header.Get("Content-Encoding") {
@@ -77,35 +119,42 @@ func Get(url string) ([]byte, int64, bool, error) {
 	}
 	b, err := io.ReadAll(reader)
 
-	buf := GetBuffer()
-	defer PutBuffer(buf)
-	err2 := response.Header.Write(buf)
+	respBuf := GetBuffer()
+	defer PutBuffer(respBuf)
+	err2 := response.Header.Write(respBuf)
 
 	if response.StatusCode >= 400 {
 		retryable := response.StatusCode >= 500
-		return nil, 0, retryable, fmt.Errorf("%s: %s", url, response.Status)
+		return reqLen, respLen, retryable, fmt.Errorf("%s: %s", url, response.Status)
 	}
 	if err != nil || err2 != nil {
-		return nil, 0, false, err
+		return reqLen, respLen, false, err
 	}
-	return b, int64(len(b) + buf.Len()), false, nil
+	respLen = len(b) + respBuf.Len()
+	return
 }
 
-func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (err error) {
+func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (reqLen int, respLen int, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	req, postErr := http.NewRequest(option.Method, option.UploadUrl, bytes.NewReader(buf.Bytes()))
 	if postErr != nil {
-		return fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		return
 	}
 	req.Header.Set("Content-Type", option.MimeType)
 	for k, v := range option.PairMap {
 		req.Header.Set(k, v)
 	}
-	if err := fillBufferFunction(buf); err != nil {
+	if err = fillBufferFunction(buf); err != nil {
 		log.Printf("error copying data %s\n", err.Error())
-		return err
+		return
 	}
+
+	headBuf := GetBuffer()
+	defer PutBuffer(headBuf)
+	req.Header.Write(headBuf)
+	reqLen = buf.Len() + headBuf.Len()
 
 	// print("+")
 	resp, post_err := HttpClient.Do(req)
@@ -116,22 +165,30 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOptio
 		}
 	}
 	if post_err != nil {
-		return fmt.Errorf("post addr:%s, err: %v", option.UploadUrl, post_err)
+		err = fmt.Errorf("post addr:%s, err: %v", option.UploadUrl, post_err)
+		return
 	}
 	defer CloseResponse(resp)
 
+	respBuf := GetBuffer()
+	defer PutBuffer(respBuf)
+	resp.Write(respBuf)
+	respLen = respBuf.Len()
+
 	if resp.StatusCode < 400 {
-		return nil
+		return
 	}
 
 	resp_body, ra_err := io.ReadAll(resp.Body)
 	if ra_err != nil {
-		return fmt.Errorf("read response body %v: %v", option.UploadUrl, ra_err)
+		err = fmt.Errorf("read response body %v: %v", option.UploadUrl, ra_err)
+		return
 	}
-	return fmt.Errorf("read response body %v: %v", option.UploadUrl, string(resp_body))
+	err = fmt.Errorf("read response body %v: %v", option.UploadUrl, string(resp_body))
+	return
 }
 
-func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (err error) {
+func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (reqLen int, respLen int, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	body_writer := multipart.NewWriter(buf)
@@ -148,26 +205,33 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 	file_writer, cp_err := body_writer.CreatePart(h)
 	if cp_err != nil {
 		log.Printf("error creating form file %s\n", cp_err.Error())
-		return cp_err
+		return reqLen, respLen, cp_err
 	}
 	if err := fillBufferFunction(file_writer); err != nil {
 		log.Printf("error copying data %s\n", err.Error())
-		return err
+		return reqLen, respLen, err
 	}
 	content_type := body_writer.FormDataContentType()
-	if err := body_writer.Close(); err != nil {
+	if err = body_writer.Close(); err != nil {
 		log.Printf("error closing body %s\n", err.Error())
-		return err
+		return reqLen, respLen, err
 	}
 	req, postErr := http.NewRequest("POST", option.UploadUrl, bytes.NewReader(buf.Bytes()))
 	if postErr != nil {
 		log.Printf("create upload request %s: %v\n", postErr)
-		return fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		return
 	}
 	req.Header.Set("Content-Type", content_type)
 	for k, v := range option.PairMap {
 		req.Header.Set(k, v)
 	}
+
+	headBuf := GetBuffer()
+	defer PutBuffer(headBuf)
+	req.Header.Write(headBuf)
+
+	reqLen = buf.Len() + headBuf.Len()
 
 	// print("+")
 	resp, post_err := HttpClient.Do(req)
@@ -178,35 +242,38 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 		}
 	}
 	if post_err != nil {
-		return fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, post_err)
+		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, post_err)
+		return
 	}
 	defer CloseResponse(resp)
 
 	if resp.StatusCode < 400 {
-		return nil
+		return
 	}
 
 	resp_body, ra_err := io.ReadAll(resp.Body)
 	if ra_err != nil {
-		return fmt.Errorf("read response body %v: %v", option.UploadUrl, ra_err)
+		err = fmt.Errorf("read response body %v: %v", option.UploadUrl, ra_err)
+		return
 	}
-	return fmt.Errorf("read response body %v: %v", option.UploadUrl, string(resp_body))
+	err = fmt.Errorf("read response body %v: %v", option.UploadUrl, string(resp_body))
+	return
 }
 
-func Upload(reader io.Reader, option *UploadOption) (err error) {
+func Upload(reader io.Reader, option *UploadOption) (reqLen int, respLen int, err error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		err = fmt.Errorf("read input: %v", err)
-		return err
+		return
 	}
 	for i := 0; i < 3; i++ {
 		if option.MimeType == "multipart/form-data" {
-			err = upload_content(func(w io.Writer) (err error) {
+			reqLen, respLen, err = upload_content(func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
 		} else {
-			err = upload_body(func(w io.Writer) (err error) {
+			reqLen, respLen, err = upload_body(func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
