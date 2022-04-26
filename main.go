@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	flag "flag"
-	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -59,12 +58,8 @@ var param string
 var files int
 
 var (
-	wait        sync.WaitGroup
-	GetStats    *stats
-	PostStats   *stats
-	HeadStats   *stats
-	DeleteStats *stats
-	PutStats    *stats
+	wait  sync.WaitGroup
+	Stats *stats
 
 	Addrs []Msg
 )
@@ -91,56 +86,8 @@ func main() {
 		GenFile(files)
 		return
 	}
+	benchTest()
 
-	if write {
-		benchWrite()
-	}
-	if read {
-		benchRead()
-	}
-	if delete {
-		benchDelete()
-	}
-}
-
-func benchDelete() {
-	fmt.Printf("\n------------ %s ----------\n", "Benchmark is finished，Delete Benchmark data start")
-	finishChan := make(chan bool)
-	pathChan := make(chan string)
-	delStats = newStats(workerNum)
-	go ReadFileIds(urlListFilePath, pathChan, delStats)
-	for i := 0; i < workerNum; i++ {
-		wait.Add(1)
-		go deleteFromRemote(pathChan)
-	}
-	delStats.start = time.Now()
-	go delStats.checkProgress("Delete Benchmark", finishChan)
-	wait.Wait()
-	wait.Add(1)
-	finishChan <- true
-	wait.Wait()
-	close(finishChan)
-
-}
-
-func benchRead() {
-	finishChan := make(chan bool)
-	pathChan := make(chan string)
-	readStats = newStats(workerNum)
-	go ReadFileIds(urlListFilePath, pathChan, readStats)
-	for i := 0; i < workerNum; i++ {
-		wait.Add(1)
-		go ReadFromRemote(pathChan, &readStats.localStats[i])
-	}
-	readStats.start = time.Now()
-	go readStats.checkProgress("Reading Benchmark", finishChan)
-	wait.Wait()
-	wait.Add(1)
-	finishChan <- true
-	wait.Wait()
-	close(finishChan)
-	readStats.end = time.Now()
-	readStats.printStats()
 }
 
 func benchTest() {
@@ -150,7 +97,7 @@ func benchTest() {
 	go ReadFileIds(urlListFilePath, pathChan, Stats)
 	for i := 0; i < workerNum; i++ {
 		wait.Add(1)
-		go ThreadTask(pathChan)
+		go ThreadTask(pathChan, i)
 	}
 	Stats.start = time.Now()
 	go Stats.checkProgress("Benchmark", finishChan)
@@ -161,16 +108,13 @@ func benchTest() {
 	wait.Wait()
 	close(finishChan)
 	Stats.printStats()
+	Stats.printStatsWithMethod(http.MethodGet)
+	Stats.printStatsWithMethod(http.MethodPost)
+
 }
 
-func ThreadTask(pathChan chan Msg) {
+func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
-	s.headStats = new(stat)
-	s.getStats = new(stat)
-	s.postStats = new(stat)
-	s.delStats = new(stat)
-	s.putStats = new(stat)
-
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	var reqLen, respLen int
 	var err error
@@ -180,14 +124,7 @@ func ThreadTask(pathChan chan Msg) {
 		switch row.method {
 		case http.MethodGet:
 			{
-				if reqLen, respLen, _, err = Get(row.url); err == nil {
-					s.getStats.completed++
-					s.getStats.reqtransfer += reqLen
-					s.getStats.resptransfer += respLen
-				} else {
-					s.getStats.failed++
-				}
-
+				reqLen, respLen, _, err = Get(row.url)
 			}
 		case http.MethodPost:
 			{
@@ -199,14 +136,6 @@ func ThreadTask(pathChan chan Msg) {
 					Filename:  filepath.Base(row.url),
 					MimeType:  contentType,
 				})
-				if err == nil {
-					s.postStats.completed++
-					s.postStats.reqtransfer += reqLen
-					s.postStats.resptransfer += respLen
-				} else {
-					s.postStats.failed++
-
-				}
 			}
 		case http.MethodPut:
 			{
@@ -218,110 +147,26 @@ func ThreadTask(pathChan chan Msg) {
 					Filename:  filepath.Base(row.url),
 					MimeType:  contentType,
 				})
-				if err == nil {
-					s.putStats.completed++
-					s.putStats.reqtransfer += reqLen
-					s.putStats.resptransfer += respLen
-				} else {
-					s.putStats.failed++
-
-				}
 			}
 		case http.MethodDelete:
 			{
-				if reqLen, respLen, err = Delete(row.url); err == nil {
-					s.delStats.completed++
-					s.delStats.reqtransfer += reqLen
-					s.delStats.resptransfer += respLen
-				} else {
-					s.delStats.failed++
-				}
+				reqLen, respLen, err = Delete(row.url)
+
 			}
 		case http.MethodHead:
 			{
-				if reqLen, respLen, err = Head(row.url); err == nil {
-					s.headStats.completed++
-					s.headStats.reqtransfer += reqLen
-					s.headStats.resptransfer += respLen
-				} else {
-					s.headStats.failed++
-				}
+				reqLen, respLen, err = Head(row.url)
 			}
 		}
-		s.getStats(time.Now().Sub(start))
-
-	}
-}
-
-func benchWrite() {
-	finishChan := make(chan bool)
-	pathChan := make(chan string)
-	writeStats = newStats(workerNum)
-	go ReadFileIds(urlListFilePath, pathChan, writeStats)
-	time.Sleep(1 * time.Second)
-	for i := 0; i < workerNum; i++ {
-		wait.Add(1)
-		go WriteToRemote(pathChan, &writeStats.localStats[i])
-	}
-	writeStats.start = time.Now()
-	go writeStats.checkProgress("Writing Benchmark", finishChan)
-	wait.Wait()
-	writeStats.end = time.Now()
-	wait.Add(1)
-	finishChan <- true
-	wait.Wait()
-	close(finishChan)
-	writeStats.printStats()
-}
-
-func deleteFromRemote(pathChan chan string) {
-	defer wait.Done()
-	for addr := range pathChan {
-		err := Delete(addr)
 		if err == nil {
-			fmt.Sprintf("success delete path:%s\n", addr)
-			continue
+			Stats.localStats[row.method][idx].completed++
+			Stats.localStats[row.method][idx].reqtransfer += reqLen
+			Stats.localStats[row.method][idx].resptransfer += respLen
 		} else {
-			log.Printf("Failed to delete %s error:%v\n", addr, err)
+			Stats.localStats[row.method][idx].failed++
 		}
-	}
-}
+		Stats.addSample(row.method, time.Now().Sub(start))
 
-func ReadFromRemote(pathChan chan string, s *stat) {
-	defer wait.Done()
-	for addr := range pathChan {
-		start := time.Now()
-		_, size, _, err := Get(addr)
-		if err == nil {
-			s.completed++
-			s.transferred += size
-			readStats.addSample(time.Now().Sub(start))
-		} else {
-			s.failed++
-			log.Printf("Failed to read %s error:%v\n", addr, err)
-		}
-	}
-}
-
-func WriteToRemote(pathChan chan string, s *stat) {
-	defer wait.Done()
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for row := range pathChan {
-		start := time.Now()
-		size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
-		reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-		if err := Upload(reader, &UploadOption{
-			Method:    http.MethodPost,
-			UploadUrl: row,
-			Filename:  filepath.Base(row),
-			MimeType:  contentType,
-		}); err == nil {
-			s.completed++
-			s.transferred += size
-		} else {
-			s.failed++
-		}
-		writeStats.addSample(time.Now().Sub(start))
 	}
 }
 
