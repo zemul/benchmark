@@ -51,7 +51,7 @@ var read bool
 var delete bool
 var urlListFilePath string
 var contentType string
-var requests int64
+var requests int
 
 var path string
 var param string
@@ -61,31 +61,32 @@ var (
 	wait  sync.WaitGroup
 	Stats *stats
 
-	Addrs []Msg
+	Addrs  []Msg
+	Addr   string
+	Method string
 )
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
 	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
-	flag.Int64Var(&requests, "n", 0, "number of requests to perform")
+	flag.IntVar(&requests, "n", 0, "number of requests to perform")
 
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
-	flag.BoolVar(&write, "w", true, "enable write")
-	flag.BoolVar(&read, "r", false, "enable read")
-	flag.BoolVar(&delete, "d", true, "enable delete")
 
-	flag.StringVar(&urlListFilePath, "filepath", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
+	flag.StringVar(&Addr, "a", "", "call addr")
+	flag.StringVar(&Method, "x", "GET", "call method")
+	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
 
-	flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
-	flag.IntVar(&files, "genNum", 0, "Generating num")
-	flag.StringVar(&param, "genParam", "", "replication=000")
+	//flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
+	//flag.IntVar(&files, "genNum", 0, "Generating num")
+	//flag.StringVar(&param, "genParam", "", "replication=000")
 	flag.Parse()
-	if files > 0 && path != "" {
-		GenFile(files)
-		return
-	}
+	//if files > 0 && path != "" {
+	//	GenFile(files)
+	//	return
+	//}
 	benchTest()
 
 }
@@ -108,8 +109,11 @@ func benchTest() {
 	wait.Wait()
 	close(finishChan)
 	Stats.printStats()
+	Stats.printStatsWithMethod(http.MethodHead)
 	Stats.printStatsWithMethod(http.MethodGet)
 	Stats.printStatsWithMethod(http.MethodPost)
+	Stats.printStatsWithMethod(http.MethodPut)
+	Stats.printStatsWithMethod(http.MethodDelete)
 
 }
 
@@ -171,6 +175,15 @@ func ThreadTask(pathChan chan Msg, idx int) {
 }
 
 func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
+	//easy pattern
+	if Addr != "" && requests > 0 {
+		for i := 0; i < requests; i++ {
+			pathChan <- Msg{method: strings.ToUpper(Method), url: Addr}
+		}
+		stats.total += requests
+		return
+	}
+
 	Addrs = []Msg{}
 	f, err := os.Open(urlListFilePath)
 	if err != nil {
@@ -179,9 +192,6 @@ func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 	defer f.Close()
 	r := bufio.NewReader(f)
 	for {
-		if stats.total > int(requests) {
-			break
-		}
 		line, _, err := r.ReadLine()
 		if err != nil || err == io.EOF {
 			break
@@ -190,26 +200,24 @@ func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 		msg := Msg{method: strings.ToUpper(raw[0]),
 			url: raw[1],
 		}
-
 		Addrs = append(Addrs, msg)
-		stats.total += 1
 	}
-	var cnt int64
+
 	// not input -n
 	if requests == 0 {
 		for i := range Addrs {
-			cnt += 1
+			stats.total += 1
 			pathChan <- Addrs[i]
 		}
 		close(pathChan)
 		return
 	}
 
-	for cnt < requests {
+	for stats.total < requests {
 		for i := range Addrs {
-			cnt += 1
+			stats.total += 1
 			pathChan <- Addrs[i]
-			if cnt >= requests {
+			if stats.total >= requests {
 				break
 			}
 		}
