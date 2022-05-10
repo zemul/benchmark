@@ -76,7 +76,7 @@ func main() {
 
 	flag.StringVar(&Addr, "a", "", "call addr")
 	flag.StringVar(&Method, "x", "GET", "call method")
-	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
+	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "dataset filePath,example: [post,http:127.0.0.1:8080/1.jpg]")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
 
 	//flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
@@ -178,9 +178,10 @@ func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 	//easy pattern
 	if Addr != "" && requests > 0 {
 		for i := 0; i < requests; i++ {
+			stats.total += 1
 			pathChan <- Msg{method: strings.ToUpper(Method), url: Addr}
 		}
-		stats.total += requests
+		close(pathChan)
 		return
 	}
 
