@@ -2,8 +2,7 @@ package main
 
 import (
 	"bufio"
-	"flag"
-	"fmt"
+	flag "flag"
 	"io"
 	"log"
 	"math/rand"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,164 +51,141 @@ var read bool
 var delete bool
 var urlListFilePath string
 var contentType string
+var requests int
 
 var path string
 var param string
 var files int
 
 var (
-	wait       sync.WaitGroup
-	writeStats *stats
-	readStats  *stats
-	delStats   *stats
-	Addrs      []string
+	wait  sync.WaitGroup
+	Stats *stats
+
+	Addrs            []Msg
+	Addr             string
+	Method           string
+	DisableKeepAlive bool
 )
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
-	flag.IntVar(&workerNum, "worker", 1, "concurrent worker")
-	flag.IntVar(&fileSizeMin, "minByte", 10, "body minlength (byte)")
-	flag.IntVar(&fileSizeMax, "maxByte", 100, "body maxlength (byte)")
-	flag.BoolVar(&write, "write", true, "enable write")
-	flag.BoolVar(&read, "read", false, "enable read")
-	flag.BoolVar(&delete, "delete", true, "enable delete")
-	flag.StringVar(&urlListFilePath, "filepath", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
-	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
-	flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
-	flag.IntVar(&files, "genNum", 0, "Generating num")
-	flag.StringVar(&param, "genParam", "", "replication=000")
+	flag.IntVar(&workerNum, "c", 1, "Concurrent worker")
+	flag.IntVar(&requests, "n", 0, "Number of requests to perform")
+
+	flag.IntVar(&fileSizeMin, "min", 10, "Body minlength (byte)")
+	flag.IntVar(&fileSizeMax, "max", 100, "Body maxlength (byte)")
+
+	flag.StringVar(&Addr, "a", "", "Call addr")
+	flag.StringVar(&Method, "x", "GET", "Call method")
+	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "Dataset filePath,example: [post,http:127.0.0.1:8080/1.jpg]")
+	flag.StringVar(&contentType, "content-type", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
+	flag.BoolVar(&DisableKeepAlive, "disable-keepalive", false, "Disable keep-alive, prevents re-use of TCP")
+	//flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
+	//flag.IntVar(&files, "genNum", 0, "Generating num")
+	//flag.StringVar(&param, "genParam", "", "replication=000")
 	flag.Parse()
-	if files > 0 && path != "" {
-		GenFile(files)
+	//if files > 0 && path != "" {
+	//	GenFile(files)
+	//	return
+	//}
+	benchTest()
+
+}
+
+func benchTest() {
+	finishChan := make(chan bool)
+	pathChan := make(chan Msg)
+	Stats = newStats(workerNum)
+	go ReadFileIds(urlListFilePath, pathChan, Stats)
+	for i := 0; i < workerNum; i++ {
+		wait.Add(1)
+		go ThreadTask(pathChan, i)
+	}
+	Stats.start = time.Now()
+	go Stats.checkProgress("Benchmark", finishChan)
+	wait.Wait()
+	Stats.end = time.Now()
+	wait.Add(1)
+	finishChan <- true
+	wait.Wait()
+	close(finishChan)
+	Stats.printStats()
+	Stats.printStatsWithMethod(http.MethodHead)
+	Stats.printStatsWithMethod(http.MethodGet)
+	Stats.printStatsWithMethod(http.MethodPost)
+	Stats.printStatsWithMethod(http.MethodPut)
+	Stats.printStatsWithMethod(http.MethodDelete)
+
+}
+
+func ThreadTask(pathChan chan Msg, idx int) {
+	defer wait.Done()
+	random := rand.New(rand.NewSource(time.Now().UnixNano()))
+	var len int
+	var err error
+	for row := range pathChan {
+		len, err = 0, nil
+		start := time.Now()
+		switch row.method {
+		case http.MethodGet:
+			{
+				len, err = Get(row.url)
+			}
+		case http.MethodPost:
+			{
+				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
+				len, err = Upload(reader, &UploadOption{
+					Method:    row.method,
+					UploadUrl: row.url,
+					Filename:  filepath.Base(row.url),
+					MimeType:  contentType,
+				})
+			}
+		case http.MethodPut:
+			{
+				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
+				len, err = Upload(reader, &UploadOption{
+					Method:    row.method,
+					UploadUrl: row.url,
+					Filename:  filepath.Base(row.url),
+					MimeType:  contentType,
+				})
+			}
+		case http.MethodDelete:
+			{
+				len, err = Delete(row.url)
+
+			}
+		case http.MethodHead:
+			{
+				len, err = Head(row.url)
+			}
+		}
+		if err == nil {
+			Stats.localStats[row.method][idx].completed++
+			Stats.localStats[row.method][idx].resptransfer += len
+		} else {
+			Stats.localStats[row.method][idx].failed++
+		}
+		Stats.addSample(row.method, idx, time.Now().Sub(start))
+
+	}
+}
+
+func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
+	//easy pattern
+	if Addr != "" && requests > 0 {
+		stats.total += requests
+		for i := 0; i < requests; i++ {
+			pathChan <- Msg{method: strings.ToUpper(Method), url: Addr}
+		}
+		close(pathChan)
 		return
 	}
 
-	if write {
-		benchWrite()
-	}
-	if read {
-		benchRead()
-	}
-	if delete {
-		benchDelete()
-	}
-}
-
-func benchDelete() {
-	fmt.Printf("\n------------ %s ----------\n", "Benchmark is finished，Delete Benchmark data start")
-	finishChan := make(chan bool)
-	pathChan := make(chan string)
-	delStats = newStats(workerNum)
-	go ReadFileIds(urlListFilePath, pathChan, delStats)
-	for i := 0; i < workerNum; i++ {
-		wait.Add(1)
-		go deleteFromRemote(pathChan)
-	}
-	delStats.start = time.Now()
-	go delStats.checkProgress("Delete Benchmark", finishChan)
-	wait.Wait()
-	wait.Add(1)
-	finishChan <- true
-	wait.Wait()
-	close(finishChan)
-
-}
-
-func benchRead() {
-	finishChan := make(chan bool)
-	pathChan := make(chan string)
-	readStats = newStats(workerNum)
-	go ReadFileIds(urlListFilePath, pathChan, readStats)
-	for i := 0; i < workerNum; i++ {
-		wait.Add(1)
-		go ReadFromRemote(pathChan, &readStats.localStats[i])
-	}
-	readStats.start = time.Now()
-	go readStats.checkProgress("Reading Benchmark", finishChan)
-	wait.Wait()
-	wait.Add(1)
-	finishChan <- true
-	wait.Wait()
-	close(finishChan)
-	readStats.end = time.Now()
-	readStats.printStats()
-}
-
-func benchWrite() {
-	finishChan := make(chan bool)
-	pathChan := make(chan string)
-	writeStats = newStats(workerNum)
-	go ReadFileIds(urlListFilePath, pathChan, writeStats)
-	time.Sleep(1 * time.Second)
-	for i := 0; i < workerNum; i++ {
-		wait.Add(1)
-		go WriteToRemote(pathChan, &writeStats.localStats[i])
-	}
-	writeStats.start = time.Now()
-	go writeStats.checkProgress("Writing Benchmark", finishChan)
-	wait.Wait()
-	writeStats.end = time.Now()
-	wait.Add(1)
-	finishChan <- true
-	wait.Wait()
-	close(finishChan)
-	writeStats.printStats()
-}
-
-func deleteFromRemote(pathChan chan string) {
-	defer wait.Done()
-	for addr := range pathChan {
-		err := Delete(addr)
-		if err == nil {
-			fmt.Sprintf("success delete path:%s\n", addr)
-			continue
-		} else {
-			log.Printf("Failed to delete %s error:%v\n", addr, err)
-		}
-	}
-}
-
-func ReadFromRemote(pathChan chan string, s *stat) {
-	defer wait.Done()
-	for addr := range pathChan {
-		start := time.Now()
-		_, size, _, err := Get(addr)
-		if err == nil {
-			s.completed++
-			s.transferred += size
-			readStats.addSample(time.Now().Sub(start))
-		} else {
-			s.failed++
-			log.Printf("Failed to read %s error:%v\n", addr, err)
-		}
-	}
-}
-
-func WriteToRemote(pathChan chan string, s *stat) {
-	defer wait.Done()
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for row := range pathChan {
-		start := time.Now()
-		size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
-		reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-		if err := Upload(reader, &UploadOption{
-			Method:    http.MethodPost,
-			UploadUrl: row,
-			Filename:  filepath.Base(row),
-			MimeType:  contentType,
-		}); err == nil {
-			s.completed++
-			s.transferred += size
-		} else {
-			s.failed++
-		}
-		writeStats.addSample(time.Now().Sub(start))
-
-	}
-}
-
-func ReadFileIds(urlListFilePath string, pathChan chan string, stats *stats) {
-	Addrs = []string{}
+	Addrs = []Msg{}
 	f, err := os.Open(urlListFilePath)
 	if err != nil {
 		log.Fatalf("File to read file %s: %s\n", urlListFilePath, err)
@@ -220,11 +197,33 @@ func ReadFileIds(urlListFilePath string, pathChan chan string, stats *stats) {
 		if err != nil || err == io.EOF {
 			break
 		}
-		Addrs = append(Addrs, string(line))
-		stats.total += 1
+		raw := strings.Split(string(line), ",")
+		msg := Msg{method: strings.ToUpper(raw[0]),
+			url: raw[1],
+		}
+		Addrs = append(Addrs, msg)
 	}
-	for i := range Addrs {
-		pathChan <- Addrs[i]
+
+	// not input -n
+	if requests == 0 {
+		stats.total += len(Addrs)
+		for i := range Addrs {
+			pathChan <- Addrs[i]
+		}
+		close(pathChan)
+		return
+	}
+
+	stats.total += requests
+	cnt := 0
+	for cnt < requests {
+		for i := range Addrs {
+			pathChan <- Addrs[i]
+			cnt += 1
+			if cnt >= requests {
+				break
+			}
+		}
 	}
 	close(pathChan)
 }

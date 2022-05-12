@@ -3,9 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"fmt"
+	"strconv"
 
+	"github.com/valyala/fasthttp"
 	"io"
 	"log"
 	"math/rand"
@@ -24,12 +25,17 @@ type HTTPClient interface {
 
 var (
 	HttpClient HTTPClient
+	FastClient fasthttp.Client
 )
 
 func init() {
+	//FastClient = fasthttp.Client{
+	//	MaxConnsPerHost: 1024,
+	//}
 	HttpClient = &http.Client{Transport: &http.Transport{
 		MaxIdleConns:        1024,
 		MaxIdleConnsPerHost: 1024,
+		DisableKeepAlives:   DisableKeepAlive,
 	}}
 }
 
@@ -41,97 +47,91 @@ type UploadOption struct {
 	PairMap   map[string]string
 }
 
-func Delete(url string) (err error) {
-	request, err := http.NewRequest("DELETE", url, nil)
+func fastGet(url string) (reqLen int, respLen int, err error) {
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+	req.SetRequestURI(url)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp)
+	err = fasthttp.Do(req, resp)
+	//_, _, err = fasthttp.Get(nil, url)
+	return
+}
+
+func Head(url string) (len int, err error) {
+	request, err := http.NewRequest("HEAD", url, nil)
+
 	resp, err := HttpClient.Do(request)
 	if err != nil {
 		return
 	}
 	defer CloseResponse(resp)
-	switch resp.StatusCode {
-	case http.StatusNotFound, http.StatusAccepted, http.StatusOK, http.StatusNoContent:
-		return nil
-	}
-	body, err := io.ReadAll(resp.Body)
-	return fmt.Errorf("delete path:%s err, httpCode:%v,body:%s", url, resp.StatusCode, string(body))
+	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	return
 }
 
-func Get(url string) ([]byte, int64, bool, error) {
+func Delete(url string) (len int, err error) {
+	request, err := http.NewRequest("DELETE", url, nil)
 
-	request, err := http.NewRequest("GET", url, nil)
-	request.Header.Add("Accept-Encoding", "gzip")
-
-	response, err := HttpClient.Do(request)
+	resp, err := HttpClient.Do(request)
 	if err != nil {
-		return nil, 0, true, err
+		return
 	}
-	defer response.Body.Close()
-
-	var reader io.ReadCloser
-	switch response.Header.Get("Content-Encoding") {
-	case "gzip":
-		reader, err = gzip.NewReader(response.Body)
-		defer reader.Close()
-	default:
-		reader = response.Body
-	}
-	b, err := io.ReadAll(reader)
-
-	buf := GetBuffer()
-	defer PutBuffer(buf)
-	err2 := response.Header.Write(buf)
-
-	if response.StatusCode >= 400 {
-		retryable := response.StatusCode >= 500
-		return nil, 0, retryable, fmt.Errorf("%s: %s", url, response.Status)
-	}
-	if err != nil || err2 != nil {
-		return nil, 0, false, err
-	}
-	return b, int64(len(b) + buf.Len()), false, nil
+	defer CloseResponse(resp)
+	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	return
 }
 
-func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (err error) {
+func Get(url string) (len int, err error) {
+
+	req, err := http.NewRequest("GET", url, nil)
+	req.Header.Add("Accept-Encoding", "gzip")
+	resp, err := HttpClient.Do(req)
+	if err != nil {
+		return len, err
+	}
+	defer CloseResponse(resp)
+	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+
+	return
+}
+
+func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (len int, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	req, postErr := http.NewRequest(option.Method, option.UploadUrl, bytes.NewReader(buf.Bytes()))
 	if postErr != nil {
-		return fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		return
 	}
 	req.Header.Set("Content-Type", option.MimeType)
 	for k, v := range option.PairMap {
 		req.Header.Set(k, v)
 	}
-	if err := fillBufferFunction(buf); err != nil {
+	if err = fillBufferFunction(buf); err != nil {
 		log.Printf("error copying data %s\n", err.Error())
-		return err
+		return
 	}
 
 	// print("+")
 	resp, post_err := HttpClient.Do(req)
+	//if post_err != nil {
+	//	if strings.Contains(post_err.Error(), "connection reset by peer") ||
+	//		strings.Contains(post_err.Error(), "use of closed network connection") {
+	//		resp, post_err = HttpClient.Do(req)
+	//	}
+	//}
 	if post_err != nil {
-		if strings.Contains(post_err.Error(), "connection reset by peer") ||
-			strings.Contains(post_err.Error(), "use of closed network connection") {
-			resp, post_err = HttpClient.Do(req)
-		}
-	}
-	if post_err != nil {
-		return fmt.Errorf("post addr:%s, err: %v", option.UploadUrl, post_err)
+		err = fmt.Errorf("post addr:%s, err: %v", option.UploadUrl, post_err)
+		return
 	}
 	defer CloseResponse(resp)
-
-	if resp.StatusCode < 400 {
-		return nil
-	}
-
-	resp_body, ra_err := io.ReadAll(resp.Body)
-	if ra_err != nil {
-		return fmt.Errorf("read response body %v: %v", option.UploadUrl, ra_err)
-	}
-	return fmt.Errorf("read response body %v: %v", option.UploadUrl, string(resp_body))
+	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	return
 }
 
-func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (err error) {
+func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (len int, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	body_writer := multipart.NewWriter(buf)
@@ -148,21 +148,22 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 	file_writer, cp_err := body_writer.CreatePart(h)
 	if cp_err != nil {
 		log.Printf("error creating form file %s\n", cp_err.Error())
-		return cp_err
+		return len, cp_err
 	}
 	if err := fillBufferFunction(file_writer); err != nil {
 		log.Printf("error copying data %s\n", err.Error())
-		return err
+		return len, err
 	}
 	content_type := body_writer.FormDataContentType()
-	if err := body_writer.Close(); err != nil {
+	if err = body_writer.Close(); err != nil {
 		log.Printf("error closing body %s\n", err.Error())
-		return err
+		return len, err
 	}
 	req, postErr := http.NewRequest("POST", option.UploadUrl, bytes.NewReader(buf.Bytes()))
 	if postErr != nil {
 		log.Printf("create upload request %s: %v\n", postErr)
-		return fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
+		return
 	}
 	req.Header.Set("Content-Type", content_type)
 	for k, v := range option.PairMap {
@@ -171,42 +172,35 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 
 	// print("+")
 	resp, post_err := HttpClient.Do(req)
+	//if post_err != nil {
+	//	if strings.Contains(post_err.Error(), "connection reset by peer") ||
+	//		strings.Contains(post_err.Error(), "use of closed network connection") {
+	//		resp, post_err = HttpClient.Do(req)
+	//	}
+	//}
 	if post_err != nil {
-		if strings.Contains(post_err.Error(), "connection reset by peer") ||
-			strings.Contains(post_err.Error(), "use of closed network connection") {
-			resp, post_err = HttpClient.Do(req)
-		}
-	}
-	if post_err != nil {
-		return fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, post_err)
+		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, post_err)
+		return
 	}
 	defer CloseResponse(resp)
-
-	if resp.StatusCode < 400 {
-		return nil
-	}
-
-	resp_body, ra_err := io.ReadAll(resp.Body)
-	if ra_err != nil {
-		return fmt.Errorf("read response body %v: %v", option.UploadUrl, ra_err)
-	}
-	return fmt.Errorf("read response body %v: %v", option.UploadUrl, string(resp_body))
+	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	return
 }
 
-func Upload(reader io.Reader, option *UploadOption) (err error) {
+func Upload(reader io.Reader, option *UploadOption) (len int, err error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		err = fmt.Errorf("read input: %v", err)
-		return err
+		return
 	}
 	for i := 0; i < 3; i++ {
 		if option.MimeType == "multipart/form-data" {
-			err = upload_content(func(w io.Writer) (err error) {
+			len, err = upload_content(func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
 		} else {
-			err = upload_body(func(w io.Writer) (err error) {
+			len, err = upload_body(func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
