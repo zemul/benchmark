@@ -61,24 +61,25 @@ var (
 	wait  sync.WaitGroup
 	Stats *stats
 
-	Addrs  []Msg
-	Addr   string
-	Method string
+	Addrs            []Msg
+	Addr             string
+	Method           string
+	DisableKeepAlive bool
 )
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
-	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
-	flag.IntVar(&requests, "n", 0, "number of requests to perform")
+	flag.IntVar(&workerNum, "c", 1, "Concurrent worker")
+	flag.IntVar(&requests, "n", 0, "Number of requests to perform")
 
-	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
-	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
+	flag.IntVar(&fileSizeMin, "min", 10, "Body minlength (byte)")
+	flag.IntVar(&fileSizeMax, "max", 100, "Body maxlength (byte)")
 
-	flag.StringVar(&Addr, "a", "", "call addr")
-	flag.StringVar(&Method, "x", "GET", "call method")
-	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "dataset filePath,example: [post,http:127.0.0.1:8080/1.jpg]")
-	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
-
+	flag.StringVar(&Addr, "a", "", "Call addr")
+	flag.StringVar(&Method, "x", "GET", "Call method")
+	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "Dataset filePath,example: [post,http:127.0.0.1:8080/1.jpg]")
+	flag.StringVar(&contentType, "content-type", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
+	flag.BoolVar(&DisableKeepAlive, "disable-keepalive", false, "Disable keep-alive, prevents re-use of TCP")
 	//flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
 	//flag.IntVar(&files, "genNum", 0, "Generating num")
 	//flag.StringVar(&param, "genParam", "", "replication=000")
@@ -120,21 +121,21 @@ func benchTest() {
 func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	var reqLen, respLen int
+	var len int
 	var err error
 	for row := range pathChan {
-		reqLen, respLen, err = 0, 0, nil
+		len, err = 0, nil
 		start := time.Now()
 		switch row.method {
 		case http.MethodGet:
 			{
-				reqLen, respLen, _, err = Get(row.url)
+				len, err = Get(row.url)
 			}
 		case http.MethodPost:
 			{
 				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
 				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-				reqLen, respLen, err = Upload(reader, &UploadOption{
+				len, err = Upload(reader, &UploadOption{
 					Method:    row.method,
 					UploadUrl: row.url,
 					Filename:  filepath.Base(row.url),
@@ -145,7 +146,7 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			{
 				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
 				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-				reqLen, respLen, err = Upload(reader, &UploadOption{
+				len, err = Upload(reader, &UploadOption{
 					Method:    row.method,
 					UploadUrl: row.url,
 					Filename:  filepath.Base(row.url),
@@ -154,22 +155,21 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			}
 		case http.MethodDelete:
 			{
-				reqLen, respLen, err = Delete(row.url)
+				len, err = Delete(row.url)
 
 			}
 		case http.MethodHead:
 			{
-				reqLen, respLen, err = Head(row.url)
+				len, err = Head(row.url)
 			}
 		}
 		if err == nil {
 			Stats.localStats[row.method][idx].completed++
-			Stats.localStats[row.method][idx].reqtransfer += reqLen
-			Stats.localStats[row.method][idx].resptransfer += respLen
+			Stats.localStats[row.method][idx].resptransfer += len
 		} else {
 			Stats.localStats[row.method][idx].failed++
 		}
-		Stats.addSample(row.method, time.Now().Sub(start))
+		Stats.addSample(row.method, idx, time.Now().Sub(start))
 
 	}
 }
@@ -177,8 +177,8 @@ func ThreadTask(pathChan chan Msg, idx int) {
 func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 	//easy pattern
 	if Addr != "" && requests > 0 {
+		stats.total += requests
 		for i := 0; i < requests; i++ {
-			stats.total += 1
 			pathChan <- Msg{method: strings.ToUpper(Method), url: Addr}
 		}
 		close(pathChan)
@@ -206,19 +206,21 @@ func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 
 	// not input -n
 	if requests == 0 {
+		stats.total += len(Addrs)
 		for i := range Addrs {
-			stats.total += 1
 			pathChan <- Addrs[i]
 		}
 		close(pathChan)
 		return
 	}
 
-	for stats.total < requests {
+	stats.total += requests
+	cnt := 0
+	for cnt < requests {
 		for i := range Addrs {
-			stats.total += 1
 			pathChan <- Addrs[i]
-			if stats.total >= requests {
+			cnt += 1
+			if cnt >= requests {
 				break
 			}
 		}

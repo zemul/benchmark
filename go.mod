@@ -4,7 +4,10 @@ go 1.17
 
 require (
 	github.com/valyala/bytebufferpool v1.0.0
-	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
+	github.com/valyala/fasthttp v1.36.0
 )
 
-require gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
+require (
+	github.com/andybalholm/brotli v1.0.4 // indirect
+	github.com/klauspost/compress v1.15.0 // indirect
+)

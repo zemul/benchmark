@@ -61,15 +61,15 @@ func newStats(n int) *stats {
 		localStats: make(map[string][]stat)}
 
 	for _, res := range Res {
-		v.data[res] = make([]int, n)
-		v.overflow[res] = make([]int, n)
+		v.data[res] = make([]int, benchResolution)
+		v.overflow[res] = make([]int, 0)
 		v.localStats[res] = make([]stat, n)
 	}
 	return v
 
 }
 
-func (s *stats) addSample(method string, d time.Duration) {
+func (s *stats) addSample(method string, idx int, d time.Duration) {
 	index := int(d / benchBucket) // 耗时 d/100000
 	if index < 0 {
 		fmt.Printf("This request takes %3.1f seconds, skipping!\n", float64(index)/10000)
@@ -106,6 +106,7 @@ func (s *stats) printStatsWithMethod(method string) {
 	fmt.Printf("Transfer rate:          %.2f [Kbytes/sec]\n", float64(transferred)/1024/timeTaken)
 	n, sum := 0, 0
 	min, max := 10000000, 0
+	// 0.1ms - 1s
 	for i := 0; i < len(s.data[method]); i++ {
 		n += s.data[method][i]
 		sum += s.data[method][i] * i
@@ -203,14 +204,14 @@ func (s *stats) printStats() {
 func (s *stats) checkProgress(testName string, finishChan chan bool) {
 	fmt.Printf("\n------------ %s ----------\n", testName)
 	ticker := time.Tick(time.Second)
-	lastCompleted, lastTransferred, lastTime := 0, int64(0), time.Now()
+	lastTime := time.Now()
 	for {
 		select {
 		case <-finishChan:
 			wait.Done()
 			return
 		case t := <-ticker:
-			completed, transferred, taken, total := 0, int64(0), t.Sub(lastTime), s.total
+			completed, transferred, _, total := 0, int64(0), t.Sub(lastTime), s.total
 			for _, localStat := range s.localStats {
 				for i := range localStat {
 					completed += localStat[i].completed
@@ -218,12 +219,15 @@ func (s *stats) checkProgress(testName string, finishChan chan bool) {
 					total += localStat[i].total
 				}
 			}
-			fmt.Printf("Completed %d of %d requests, %3.1f%% %3.1f/s %3.1fMB/s\n",
-				completed, total, float64(completed)*100/float64(total),
-				float64(completed-lastCompleted)*float64(int64(time.Second))/float64(int64(taken)),
-				float64(transferred-lastTransferred)*float64(int64(time.Second))/float64(int64(taken))/float64(1024*1024),
+			fmt.Printf("Completed %d requests\n",
+				completed,
 			)
-			lastCompleted, lastTransferred, lastTime = completed, transferred, t
+			//fmt.Printf("Completed %d of %d requests, %3.1f%% %3.1f/s %3.1fMB/s\n",
+			//	completed, total, float64(completed)*100/float64(total),
+			//	float64(completed-lastCompleted)*float64(int64(time.Second))/float64(int64(taken)),
+			//	float64(transferred-lastTransferred)*float64(int64(time.Second))/float64(int64(taken))/float64(1024*1024),
+			//)
+			lastTime = t
 		}
 	}
 }
