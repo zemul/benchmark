@@ -86,6 +86,11 @@ func Get(url string) (len int, err error) {
 func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (len int, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
+	if err = fillBufferFunction(buf); err != nil {
+		log.Printf("error copying data %s\n", err.Error())
+		return
+	}
+
 	req, postErr := http.NewRequest(option.Method, option.UploadUrl, bytes.NewReader(buf.Bytes()))
 	if postErr != nil {
 		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
@@ -94,10 +99,6 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOptio
 	req.Header.Set("Content-Type", option.MimeType)
 	for k, v := range option.PairMap {
 		req.Header.Set(k, v)
-	}
-	if err = fillBufferFunction(buf); err != nil {
-		log.Printf("error copying data %s\n", err.Error())
-		return
 	}
 
 	// print("+")
