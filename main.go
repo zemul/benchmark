@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,9 +62,10 @@ var (
 	wait  sync.WaitGroup
 	Stats *stats
 
-	Addrs  []Msg
-	Addr   string
-	Method string
+	Addrs            []Msg
+	Addr             string
+	Method           string
+	DisableKeepAlive bool
 )
 
 func main() {
@@ -77,20 +77,12 @@ func main() {
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
 
-	//flag.StringVar(&Addr, "a", "", "call addr")
-	//flag.StringVar(&Method, "x", "GET", "call method")
 	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
 
-	//flag.StringVar(&path, "genPath", "", "Generating HTTP addresses")
-	//flag.IntVar(&files, "genNum", 0, "Generating num")
-	//flag.StringVar(&param, "genParam", "", "replication=000")
+	flag.BoolVar(&DisableKeepAlive, "disable-keepalive", false, "Disable keep-alive")
 	flag.Parse()
 	runtime.GOMAXPROCS(cpuNum)
-	//if files > 0 && path != "" {
-	//	GenFile(files)
-	//	return
-	//}
 	benchTest()
 
 }
@@ -124,21 +116,21 @@ func benchTest() {
 func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	var reqLen, respLen int
+	var len int
 	var err error
 	for row := range pathChan {
-		reqLen, respLen, err = 0, 0, nil
+		len, err = 0, nil
 		start := time.Now()
 		switch row.method {
 		case http.MethodGet:
 			{
-				reqLen, respLen, _, err = Get(row.url)
+				len, err = Get(row.url)
 			}
 		case http.MethodPost:
 			{
 				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
 				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-				reqLen, respLen, err = Upload(reader, &UploadOption{
+				len, err = Upload(reader, &UploadOption{
 					Method:    row.method,
 					UploadUrl: row.url,
 					Filename:  filepath.Base(row.url),
@@ -149,7 +141,7 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			{
 				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
 				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-				reqLen, respLen, err = Upload(reader, &UploadOption{
+				len, err = Upload(reader, &UploadOption{
 					Method:    row.method,
 					UploadUrl: row.url,
 					Filename:  filepath.Base(row.url),
@@ -158,28 +150,26 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			}
 		case http.MethodDelete:
 			{
-				reqLen, respLen, err = Delete(row.url)
+				len, err = Delete(row.url)
 
 			}
 		case http.MethodHead:
 			{
-				reqLen, respLen, err = Head(row.url)
+				len, err = Head(row.url)
 			}
 		}
 		if err == nil {
 			Stats.localStats[row.method][idx].completed++
-			Stats.localStats[row.method][idx].reqtransfer += reqLen
-			Stats.localStats[row.method][idx].resptransfer += respLen
+			Stats.localStats[row.method][idx].resptransfer += len
 		} else {
 			Stats.localStats[row.method][idx].failed++
 		}
-		Stats.addSample(row.method, time.Now().Sub(start))
+		Stats.addSample(row.method, idx, time.Now().Sub(start))
 
 	}
 }
 
 func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
-
 	Addrs = []Msg{}
 	f, err := os.Open(urlListFilePath)
 	if err != nil {
@@ -216,21 +206,4 @@ func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 		curr++
 	}
 	close(pathChan)
-}
-
-func GenFile(num int) {
-	f, err := os.OpenFile(os.TempDir()+"/benchmark_list.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		log.Fatalf("File to create file %s: %s\n", "benchmark_list.txt", err)
-	}
-	defer f.Close()
-	for i := 0; i < num; i++ {
-		f.Write([]byte(path))
-		f.Write([]byte("/" + strconv.Itoa(i)))
-		if param != "" {
-			f.Write([]byte("?" + param))
-		}
-		f.Write([]byte("\n"))
-	}
-
 }
