@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type stats struct {
 	overflow map[string][]int
 
 	localStats map[string][]stat
+	sync.Mutex
 
 	//
 	//getStats []stat
@@ -71,6 +73,8 @@ func newStats(n int) *stats {
 
 func (s *stats) addSample(method string, d time.Duration) {
 	index := int(d / benchBucket) // 耗时 d/100000
+	s.Lock()
+	defer s.Unlock()
 	if index < 0 {
 		fmt.Printf("This request takes %3.1f seconds, skipping!\n", float64(index)/10000)
 	} else if index < len(s.data[method]) { // 0.1 microsecond,精确到毫秒后一位，耗时1ms=index = 1000000 / 10000=10
@@ -90,7 +94,6 @@ func (s *stats) printStatsWithMethod(method string) {
 		total += localStat.total
 		transferred += int64(localStat.reqtransfer)
 		transferred += int64(localStat.resptransfer)
-
 	}
 	if completed == 0 {
 		return

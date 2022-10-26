@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +57,7 @@ var requests int
 var path string
 var param string
 var files int
+var cpuNum int
 
 var (
 	wait  sync.WaitGroup
@@ -68,14 +70,15 @@ var (
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
+	flag.IntVar(&cpuNum, "cpu", runtime.NumCPU()/2, "maximum number of CPUs")
 	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
 	flag.IntVar(&requests, "n", 0, "number of requests to perform")
 
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
 
-	flag.StringVar(&Addr, "a", "", "call addr")
-	flag.StringVar(&Method, "x", "GET", "call method")
+	//flag.StringVar(&Addr, "a", "", "call addr")
+	//flag.StringVar(&Method, "x", "GET", "call method")
 	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
 
@@ -83,6 +86,7 @@ func main() {
 	//flag.IntVar(&files, "genNum", 0, "Generating num")
 	//flag.StringVar(&param, "genParam", "", "replication=000")
 	flag.Parse()
+	runtime.GOMAXPROCS(cpuNum)
 	//if files > 0 && path != "" {
 	//	GenFile(files)
 	//	return
@@ -93,7 +97,7 @@ func main() {
 
 func benchTest() {
 	finishChan := make(chan bool)
-	pathChan := make(chan Msg)
+	pathChan := make(chan Msg, 100)
 	Stats = newStats(workerNum)
 	go ReadFileIds(urlListFilePath, pathChan, Stats)
 	for i := 0; i < workerNum; i++ {
@@ -175,14 +179,6 @@ func ThreadTask(pathChan chan Msg, idx int) {
 }
 
 func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
-	//easy pattern
-	if Addr != "" && requests > 0 {
-		for i := 0; i < requests; i++ {
-			pathChan <- Msg{method: strings.ToUpper(Method), url: Addr}
-		}
-		stats.total += requests
-		return
-	}
 
 	Addrs = []Msg{}
 	f, err := os.Open(urlListFilePath)
@@ -197,30 +193,27 @@ func ReadFileIds(urlListFilePath string, pathChan chan Msg, stats *stats) {
 			break
 		}
 		raw := strings.Split(string(line), ",")
+		if len(raw) < 2 {
+			panic("illegal url")
+		}
 		msg := Msg{method: strings.ToUpper(raw[0]),
-			url: raw[1],
+			url: strings.Join(raw[1:], ""),
 		}
 		Addrs = append(Addrs, msg)
+		stats.total += 1
 	}
 
-	// not input -n
-	if requests == 0 {
-		for i := range Addrs {
-			stats.total += 1
-			pathChan <- Addrs[i]
-		}
-		close(pathChan)
-		return
+	if requests > 0 {
+		stats.total = requests
 	}
 
-	for stats.total < requests {
-		for i := range Addrs {
-			stats.total += 1
-			pathChan <- Addrs[i]
-			if stats.total >= requests {
-				break
-			}
+	for curr, idx := 0, 0; curr < stats.total; {
+		if idx >= len(Addrs) {
+			idx = 0
 		}
+		pathChan <- Addrs[idx]
+		idx++
+		curr++
 	}
 	close(pathChan)
 }
