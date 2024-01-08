@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	flag "flag"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -50,6 +52,7 @@ var write bool
 var read bool
 var delete bool
 var urlListFilePath string
+var bodyPath string
 var contentType string
 var requests int
 
@@ -57,6 +60,8 @@ var path string
 var param string
 var files int
 var cpuNum int
+
+var body []byte
 
 var (
 	wait  sync.WaitGroup
@@ -78,8 +83,8 @@ func main() {
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
 
 	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
+	flag.StringVar(&bodyPath, "b", "", "body file path")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
-
 	flag.BoolVar(&DisableKeepAlive, "disable-keepalive", false, "Disable keep-alive")
 	flag.Parse()
 	runtime.GOMAXPROCS(cpuNum)
@@ -88,6 +93,14 @@ func main() {
 }
 
 func benchTest() {
+	var err error
+	if bodyPath != "" {
+		body, err = os.ReadFile(bodyPath)
+		if err != nil {
+			panic(fmt.Errorf("read body file: %v", err))
+		}
+	}
+
 	finishChan := make(chan bool)
 	pathChan := make(chan Msg, 100)
 	Stats = newStats(workerNum)
@@ -128,25 +141,45 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			}
 		case http.MethodPost:
 			{
-				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
-				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-				len, err = Upload(reader, &UploadOption{
-					Method:    row.method,
-					UploadUrl: row.url,
-					Filename:  filepath.Base(row.url),
-					MimeType:  contentType,
-				})
+				if bodyPath != "" {
+					len, err = Upload(bytes.NewReader(body), &UploadOption{
+						Method:    row.method,
+						UploadUrl: row.url,
+						Filename:  filepath.Base(row.url),
+						MimeType:  contentType,
+					})
+				} else {
+					size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+					reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
+					len, err = Upload(reader, &UploadOption{
+						Method:    row.method,
+						UploadUrl: row.url,
+						Filename:  filepath.Base(row.url),
+						MimeType:  contentType,
+					})
+				}
+
 			}
 		case http.MethodPut:
 			{
-				size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
-				reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-				len, err = Upload(reader, &UploadOption{
-					Method:    row.method,
-					UploadUrl: row.url,
-					Filename:  filepath.Base(row.url),
-					MimeType:  contentType,
-				})
+				if bodyPath != "" {
+					len, err = Upload(bytes.NewReader(body), &UploadOption{
+						Method:    row.method,
+						UploadUrl: row.url,
+						Filename:  filepath.Base(row.url),
+						MimeType:  contentType,
+					})
+				} else {
+					size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+					reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
+					len, err = Upload(reader, &UploadOption{
+						Method:    row.method,
+						UploadUrl: row.url,
+						Filename:  filepath.Base(row.url),
+						MimeType:  contentType,
+					})
+				}
+
 			}
 		case http.MethodDelete:
 			{
