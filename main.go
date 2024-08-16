@@ -197,8 +197,9 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			length, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
 			Stats.localStats[row.method][idx].completed++
 			Stats.localStats[row.method][idx].resptransfer += length
-			if resp.StatusCode >= 299 {
+			if resp.StatusCode > 299 {
 				Stats.localStats[row.method][idx].not2xx++
+				Stats.localStats[row.method][idx].failed++
 			}
 		} else {
 			Stats.localStats[row.method][idx].failed++
