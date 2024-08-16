@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"strconv"
-
 	"io"
 	"log"
 	"math/rand"
@@ -45,45 +43,27 @@ type UploadOption struct {
 	PairMap   map[string]string
 }
 
-func Head(url string) (len int, err error) {
+func Head(url string) (resp *http.Response, err error) {
 	request, err := http.NewRequest("HEAD", url, nil)
 
-	resp, err := HttpClient.Do(request)
-	if err != nil {
-		return
-	}
-	defer CloseResponse(resp)
-	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	resp, err = HttpClient.Do(request)
 	return
 }
 
-func Delete(url string) (len int, err error) {
+func Delete(url string) (resp *http.Response, err error) {
 	request, err := http.NewRequest("DELETE", url, nil)
-
-	resp, err := HttpClient.Do(request)
-	if err != nil {
-		return
-	}
-	defer CloseResponse(resp)
-	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	resp, err = HttpClient.Do(request)
 	return
 }
 
-func Get(url string) (len int, err error) {
-
+func Get(url string) (resp *http.Response, err error) {
 	req, err := http.NewRequest("GET", url, nil)
 	req.Header.Add("Accept-Encoding", "gzip")
-	resp, err := HttpClient.Do(req)
-	if err != nil {
-		return len, err
-	}
-	defer CloseResponse(resp)
-	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
-
+	resp, err = HttpClient.Do(req)
 	return
 }
 
-func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (len int, err error) {
+func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (resp *http.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	if err = fillBufferFunction(buf); err != nil {
@@ -101,24 +81,11 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOptio
 		req.Header.Set(k, v)
 	}
 
-	// print("+")
-	resp, post_err := HttpClient.Do(req)
-	//if post_err != nil {
-	//	if strings.Contains(post_err.Error(), "connection reset by peer") ||
-	//		strings.Contains(post_err.Error(), "use of closed network connection") {
-	//		resp, post_err = HttpClient.Do(req)
-	//	}
-	//}
-	if post_err != nil {
-		err = fmt.Errorf("post addr:%s, err: %v", option.UploadUrl, post_err)
-		return
-	}
-	defer CloseResponse(resp)
-	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
+	resp, err = HttpClient.Do(req)
 	return
 }
 
-func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (len int, err error) {
+func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (resp *http.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	body_writer := multipart.NewWriter(buf)
@@ -135,16 +102,16 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 	file_writer, cp_err := body_writer.CreatePart(h)
 	if cp_err != nil {
 		log.Printf("error creating form file %s\n", cp_err.Error())
-		return len, cp_err
+		return resp, cp_err
 	}
 	if err := fillBufferFunction(file_writer); err != nil {
 		log.Printf("error copying data %s\n", err.Error())
-		return len, err
+		return resp, err
 	}
 	content_type := body_writer.FormDataContentType()
 	if err = body_writer.Close(); err != nil {
 		log.Printf("error closing body %s\n", err.Error())
-		return len, err
+		return resp, err
 	}
 	req, postErr := http.NewRequest("POST", option.UploadUrl, bytes.NewReader(buf.Bytes()))
 	if postErr != nil {
@@ -157,24 +124,15 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 		req.Header.Set(k, v)
 	}
 
-	// print("+")
-	resp, post_err := HttpClient.Do(req)
-	//if post_err != nil {
-	//	if strings.Contains(post_err.Error(), "connection reset by peer") ||
-	//		strings.Contains(post_err.Error(), "use of closed network connection") {
-	//		resp, post_err = HttpClient.Do(req)
-	//	}
-	//}
-	if post_err != nil {
-		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, post_err)
+	resp, err = HttpClient.Do(req)
+	if err != nil {
+		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, err)
 		return
 	}
-	defer CloseResponse(resp)
-	len, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
 	return
 }
 
-func Upload(reader io.Reader, option *UploadOption) (len int, err error) {
+func Upload(reader io.Reader, option *UploadOption) (resp *http.Response, err error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		err = fmt.Errorf("read input: %v", err)
@@ -182,12 +140,12 @@ func Upload(reader io.Reader, option *UploadOption) (len int, err error) {
 	}
 	for i := 0; i < 3; i++ {
 		if option.MimeType == "multipart/form-data" {
-			len, err = upload_content(func(w io.Writer) (err error) {
+			resp, err = upload_content(func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
 		} else {
-			len, err = upload_body(func(w io.Writer) (err error) {
+			resp, err = upload_body(func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
@@ -203,8 +161,10 @@ func Upload(reader io.Reader, option *UploadOption) (len int, err error) {
 }
 
 func CloseResponse(resp *http.Response) {
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	if resp != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
 }
 
 var (

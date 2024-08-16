@@ -41,6 +41,7 @@ type stats struct {
 type stat struct {
 	completed    int
 	failed       int
+	not2xx       int
 	total        int
 	transferred  int64
 	reqtransfer  int
@@ -183,11 +184,12 @@ func (s *stats) printStatsWithMethod(method string) {
 func (s *stats) printStats() {
 	fmt.Printf("\n------------ %s ----------\n", "Summary")
 
-	completed, failed, transferred, total := 0, 0, int64(0), s.total
+	completed, failed, not2xx, transferred, total := 0, 0, 0, int64(0), s.total
 	for _, localStat := range s.localStats {
 		for i := range localStat {
 			completed += localStat[i].completed
 			failed += localStat[i].failed
+			not2xx += localStat[i].not2xx
 			transferred += int64(localStat[i].reqtransfer)
 			transferred += int64(localStat[i].resptransfer)
 			total += localStat[i].total
@@ -198,6 +200,7 @@ func (s *stats) printStats() {
 	fmt.Printf("Time taken for tests:   %.3f seconds\n", timeTaken)
 	fmt.Printf("Complete requests:      %d\n", completed)
 	fmt.Printf("Failed requests:        %d\n", failed)
+	fmt.Printf("Failed requests(not 2xx):        %d\n", not2xx)
 	fmt.Printf("Total transferred:      %d bytes\n", transferred)
 	fmt.Printf("Requests per second:    %.2f [#/sec]\n", float64(completed)/timeTaken)
 	fmt.Printf("Transfer rate:          %.2f [Kbytes/sec]\n", float64(transferred)/1024/timeTaken)

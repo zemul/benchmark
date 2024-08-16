@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -129,20 +130,20 @@ func benchTest() {
 func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	var len int
+	var length int
 	var err error
 	for row := range pathChan {
-		len, err = 0, nil
+		var resp *http.Response
 		start := time.Now()
 		switch row.method {
 		case http.MethodGet:
 			{
-				len, err = Get(row.url)
+				resp, err = Get(row.url)
 			}
 		case http.MethodPost:
 			{
 				if bodyPath != "" {
-					len, err = Upload(bytes.NewReader(body), &UploadOption{
+					resp, err = Upload(bytes.NewReader(body), &UploadOption{
 						Method:    row.method,
 						UploadUrl: row.url,
 						Filename:  filepath.Base(row.url),
@@ -151,7 +152,7 @@ func ThreadTask(pathChan chan Msg, idx int) {
 				} else {
 					size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
 					reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-					len, err = Upload(reader, &UploadOption{
+					resp, err = Upload(reader, &UploadOption{
 						Method:    row.method,
 						UploadUrl: row.url,
 						Filename:  filepath.Base(row.url),
@@ -163,7 +164,7 @@ func ThreadTask(pathChan chan Msg, idx int) {
 		case http.MethodPut:
 			{
 				if bodyPath != "" {
-					len, err = Upload(bytes.NewReader(body), &UploadOption{
+					resp, err = Upload(bytes.NewReader(body), &UploadOption{
 						Method:    row.method,
 						UploadUrl: row.url,
 						Filename:  filepath.Base(row.url),
@@ -172,7 +173,7 @@ func ThreadTask(pathChan chan Msg, idx int) {
 				} else {
 					size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
 					reader := &FakeReader{id: uint64(rand.Uint64()), size: size, random: random}
-					len, err = Upload(reader, &UploadOption{
+					resp, err = Upload(reader, &UploadOption{
 						Method:    row.method,
 						UploadUrl: row.url,
 						Filename:  filepath.Base(row.url),
@@ -183,17 +184,22 @@ func ThreadTask(pathChan chan Msg, idx int) {
 			}
 		case http.MethodDelete:
 			{
-				len, err = Delete(row.url)
+				resp, err = Delete(row.url)
 
 			}
 		case http.MethodHead:
 			{
-				len, err = Head(row.url)
+				resp, err = Head(row.url)
 			}
 		}
+		CloseResponse(resp)
 		if err == nil {
+			length, _ = strconv.Atoi(resp.Header.Get("Content-Length"))
 			Stats.localStats[row.method][idx].completed++
-			Stats.localStats[row.method][idx].resptransfer += len
+			Stats.localStats[row.method][idx].resptransfer += length
+			if resp.StatusCode >= 299 {
+				Stats.localStats[row.method][idx].not2xx++
+			}
 		} else {
 			Stats.localStats[row.method][idx].failed++
 		}
