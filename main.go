@@ -74,20 +74,21 @@ var (
 	DisableKeepAlive bool
 )
 
-func main() {
-	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
+func init() {
 	flag.IntVar(&cpuNum, "cpu", runtime.NumCPU()/2, "maximum number of CPUs")
 	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
 	flag.IntVar(&requests, "n", 0, "number of requests to perform")
-
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
-
 	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
 	flag.StringVar(&bodyPath, "b", "", "body file path")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
 	flag.BoolVar(&DisableKeepAlive, "disable-keepalive", false, "Disable keep-alive")
 	flag.Parse()
+}
+
+func main() {
+	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
 	runtime.GOMAXPROCS(cpuNum)
 	benchTest()
 
