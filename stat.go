@@ -228,11 +228,7 @@ func (s *stats) checkProgress(testName string, finishChan chan bool) {
 			fmt.Printf("Completed %d requests\n",
 				completed,
 			)
-			//fmt.Printf("Completed %d of %d requests, %3.1f%% %3.1f/s %3.1fMB/s\n",
-			//	completed, total, float64(completed)*100/float64(total),
-			//	float64(completed-lastCompleted)*float64(int64(time.Second))/float64(int64(taken)),
-			//	float64(transferred-lastTransferred)*float64(int64(time.Second))/float64(int64(taken))/float64(1024*1024),
-			//)
+
 			lastTime = t
 		}
 	}

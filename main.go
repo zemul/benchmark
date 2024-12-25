@@ -46,52 +46,33 @@ filer
 POST,"http://10.17.100.28:8888/buckets/bechmark/x.dat"
 */
 
-var workerNum int
-var fileSizeMin int
-var fileSizeMax int
-var write bool
-var read bool
-var delete bool
-var urlListFilePath string
-var bodyPath string
-var contentType string
-var requests int
-
-var path string
-var param string
-var files int
-var cpuNum int
-
-var body []byte
-
 var (
 	wait  sync.WaitGroup
 	Stats *stats
 
-	Addrs            []Msg
-	Addr             string
-	Method           string
-	DisableKeepAlive bool
+	Addrs  []Msg
+	Addr   string
+	Method string
 )
 
 func init() {
-	flag.IntVar(&cpuNum, "cpu", runtime.NumCPU()/2, "maximum number of CPUs")
+	flag.IntVar(&cpuNum, "cpu", runtime.NumCPU()/2, "maximum number of cpus")
 	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
 	flag.IntVar(&requests, "n", 0, "number of requests to perform")
+	flag.IntVar(&timelimit, "t", 0, "seconds to max. to spend on benchmarking")
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
 	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
 	flag.StringVar(&bodyPath, "b", "", "body file path")
 	flag.StringVar(&contentType, "contentType", "multipart/form-data", "Http call contentType, options[text/plain, application/json, multipart/form-data]")
-	flag.BoolVar(&DisableKeepAlive, "disable-keepalive", false, "Disable keep-alive")
-	flag.Parse()
 }
 
 func main() {
 	log.SetFlags(log.Llongfile | log.Lmicroseconds | log.Ldate)
+	flag.Parse()
 	runtime.GOMAXPROCS(cpuNum)
+	initHttpClientConfig()
 	benchTest()
-
 }
 
 func benchTest() {
@@ -125,7 +106,6 @@ func benchTest() {
 	Stats.printStatsWithMethod(http.MethodPost)
 	Stats.printStatsWithMethod(http.MethodPut)
 	Stats.printStatsWithMethod(http.MethodDelete)
-
 }
 
 func ThreadTask(pathChan chan Msg, idx int) {

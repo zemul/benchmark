@@ -20,21 +20,6 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-var (
-	HttpClient HTTPClient
-)
-
-func init() {
-	//FastClient = fasthttp.Client{
-	//	MaxConnsPerHost: 1024,
-	//}
-	HttpClient = &http.Client{Transport: &http.Transport{
-		MaxIdleConns:        1024,
-		MaxIdleConnsPerHost: 1024,
-		DisableKeepAlives:   DisableKeepAlive,
-	}}
-}
-
 type UploadOption struct {
 	Method    string
 	UploadUrl string
@@ -46,20 +31,20 @@ type UploadOption struct {
 func Head(url string) (resp *http.Response, err error) {
 	request, err := http.NewRequest("HEAD", url, nil)
 
-	resp, err = HttpClient.Do(request)
+	resp, err = Hc.Do(request)
 	return
 }
 
 func Delete(url string) (resp *http.Response, err error) {
 	request, err := http.NewRequest("DELETE", url, nil)
-	resp, err = HttpClient.Do(request)
+	resp, err = Hc.Do(request)
 	return
 }
 
 func Get(url string) (resp *http.Response, err error) {
 	req, err := http.NewRequest("GET", url, nil)
 	req.Header.Add("Accept-Encoding", "gzip")
-	resp, err = HttpClient.Do(req)
+	resp, err = Hc.Do(req)
 	return
 }
 
@@ -81,7 +66,7 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOptio
 		req.Header.Set(k, v)
 	}
 
-	resp, err = HttpClient.Do(req)
+	resp, err = Hc.Do(req)
 	return
 }
 
@@ -124,7 +109,7 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 		req.Header.Set(k, v)
 	}
 
-	resp, err = HttpClient.Do(req)
+	resp, err = Hc.Do(req)
 	if err != nil {
 		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, err)
 		return
