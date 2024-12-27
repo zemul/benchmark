@@ -20,35 +20,43 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-type UploadOption struct {
+type CallOption struct {
 	Method    string
 	UploadUrl string
 	Filename  string
 	MimeType  string
 	PairMap   map[string]string
+	Header    map[string]string
 }
 
-func Head(url string) (resp *http.Response, err error) {
+func Head(url string, option *CallOption) (resp *http.Response, err error) {
 	request, err := http.NewRequest("HEAD", url, nil)
-
+	for k, v := range GetHeader() {
+		request.Header.Set(k, v)
+	}
 	resp, err = Hc.Do(request)
 	return
 }
 
-func Delete(url string) (resp *http.Response, err error) {
-	request, err := http.NewRequest("DELETE", url, nil)
+func Delete(url string, option *CallOption) (resp *http.Response, err error) {
+	request, err := http.NewRequest("HEAD", url, nil)
+	for k, v := range GetHeader() {
+		request.Header.Set(k, v)
+	}
 	resp, err = Hc.Do(request)
 	return
 }
 
-func Get(url string) (resp *http.Response, err error) {
-	req, err := http.NewRequest("GET", url, nil)
-	req.Header.Add("Accept-Encoding", "gzip")
-	resp, err = Hc.Do(req)
+func Get(url string, option *CallOption) (resp *http.Response, err error) {
+	request, err := http.NewRequest("HEAD", url, nil)
+	for k, v := range GetHeader() {
+		request.Header.Set(k, v)
+	}
+	resp, err = Hc.Do(request)
 	return
 }
 
-func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOption) (resp *http.Response, err error) {
+func upload_body(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *http.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	if err = fillBufferFunction(buf); err != nil {
@@ -61,8 +69,8 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOptio
 		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
 		return
 	}
-	req.Header.Set("Content-Type", option.MimeType)
-	for k, v := range option.PairMap {
+
+	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
 
@@ -70,7 +78,7 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *UploadOptio
 	return
 }
 
-func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOption) (resp *http.Response, err error) {
+func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *http.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	body_writer := multipart.NewWriter(buf)
@@ -105,7 +113,7 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 		return
 	}
 	req.Header.Set("Content-Type", content_type)
-	for k, v := range option.PairMap {
+	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
 
@@ -117,7 +125,7 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *UploadOp
 	return
 }
 
-func Upload(reader io.Reader, option *UploadOption) (resp *http.Response, err error) {
+func Upload(reader io.Reader, option *CallOption) (resp *http.Response, err error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		err = fmt.Errorf("read input: %v", err)

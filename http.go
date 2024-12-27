@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"net/http"
 	"time"
 )
@@ -9,16 +8,6 @@ import (
 var (
 	Hc HTTPClient
 )
-
-var (
-	useKeepAlive  bool
-	timeoutSecond int64
-)
-
-func init() {
-	flag.BoolVar(&useKeepAlive, "k", false, "使用KeepAlive功能")
-	flag.Int64Var(&timeoutSecond, "s", 30, "请求超时时间(秒)")
-}
 
 func initHttpClientConfig() {
 	Hc = &http.Client{Transport: &http.Transport{
