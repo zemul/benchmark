@@ -178,12 +178,13 @@ func readSingleUrl(pathChan chan Msg, cancelChan chan struct{}, stats *stats) {
 		method: method,
 		url:    urlPath,
 	}
+	defer close(pathChan)
+
 	if requests > 0 {
 		stats.total = requests
 		for i := 0; i < requests; i++ {
 			select {
 			case <-cancelChan:
-				close(pathChan)
 				return
 			case pathChan <- msg:
 			}
@@ -194,10 +195,8 @@ func readSingleUrl(pathChan chan Msg, cancelChan chan struct{}, stats *stats) {
 		for {
 			select {
 			case <-timer.C:
-				close(pathChan)
 				return
 			case <-cancelChan:
-				close(pathChan)
 				return
 			case pathChan <- msg:
 				stats.total++
@@ -229,6 +228,7 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 		Addrs = append(Addrs, msg)
 	}
 
+	defer close(pathChan)
 	if requests > 0 {
 		stats.total = requests
 		for curr, idx := 0, 0; curr < stats.total; {
@@ -237,7 +237,6 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 			}
 			select {
 			case <-cancelChan:
-				close(pathChan)
 				return
 			case pathChan <- Addrs[idx]:
 				idx++
@@ -250,10 +249,8 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 		for {
 			select {
 			case <-timer.C:
-				close(pathChan)
 				return
 			case <-cancelChan:
-				close(pathChan)
 				return
 			default:
 				if idx >= len(Addrs) {
@@ -261,7 +258,6 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 				}
 				select {
 				case <-cancelChan:
-					close(pathChan)
 					return
 				case pathChan <- Addrs[idx]:
 					idx++
@@ -270,5 +266,4 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 			}
 		}
 	}
-	close(pathChan)
 }

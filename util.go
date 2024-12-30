@@ -30,7 +30,7 @@ type CallOption struct {
 }
 
 func Head(url string, option *CallOption) (resp *http.Response, err error) {
-	request, err := http.NewRequest("HEAD", url, nil)
+	request, err := http.NewRequest(http.MethodHead, url, nil)
 	for k, v := range GetHeader() {
 		request.Header.Set(k, v)
 	}
@@ -39,7 +39,7 @@ func Head(url string, option *CallOption) (resp *http.Response, err error) {
 }
 
 func Delete(url string, option *CallOption) (resp *http.Response, err error) {
-	request, err := http.NewRequest("HEAD", url, nil)
+	request, err := http.NewRequest(http.MethodDelete, url, nil)
 	for k, v := range GetHeader() {
 		request.Header.Set(k, v)
 	}
@@ -48,7 +48,7 @@ func Delete(url string, option *CallOption) (resp *http.Response, err error) {
 }
 
 func Get(url string, option *CallOption) (resp *http.Response, err error) {
-	request, err := http.NewRequest("HEAD", url, nil)
+	request, err := http.NewRequest(http.MethodGet, url, nil)
 	for k, v := range GetHeader() {
 		request.Header.Set(k, v)
 	}
