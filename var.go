@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"os"
 	"runtime"
 	"strings"
 )
@@ -47,7 +46,7 @@ func init() {
 	flag.Var(&headers, "H", "Custom header eg: 'Accept-Encoding: gzip' (can be repeated)")
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
-	flag.StringVar(&urlListFilePath, "f", os.TempDir()+"/benchmark_list.txt", "filePath: dataset filePath")
+	flag.StringVar(&urlListFilePath, "f", "", "filePath: dataset filePath")
 
 	flag.StringVar(&bodyFile, "b", "", "File containing data to Call")
 	flag.StringVar(&bodyFile, "postfile", "", "File containing data to Call")
