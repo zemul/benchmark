@@ -43,7 +43,7 @@ func init() {
 
 	// request
 	flag.StringVar(&method, "m", "GET", "Http call method, options[POST, PUT]")
-	flag.Var(&headers, "H", "Custom header eg: 'Accept-Encoding: gzip' (can be repeated)")
+	flag.Var(&headers, "H", "Custom header eg: 'Accept-Encoding: gzip'")
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
 	flag.StringVar(&urlListFilePath, "f", "", "filePath: dataset filePath")
