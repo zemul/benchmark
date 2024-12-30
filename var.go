@@ -49,9 +49,7 @@ func init() {
 	flag.StringVar(&urlListFilePath, "f", "", "filePath: dataset filePath")
 
 	flag.StringVar(&bodyFile, "b", "", "File containing data to Call")
-	flag.StringVar(&bodyFile, "postfile", "", "File containing data to Call")
 
-	flag.StringVar(&contentType, "T", "text/plain", "Content-type header to use for POST/PUT data, eg.'application/x-www-form-urlencoded'")
 	flag.StringVar(&contentType, "content-type", "text/plain", "Content-type header to use for POST/PUT data, eg.'application/x-www-form-urlencoded'")
 
 }
