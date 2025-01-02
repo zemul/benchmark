@@ -1,8 +1,9 @@
 package main
 
 import (
-	"net/http"
 	"time"
+
+	"github.com/valyala/fasthttp"
 )
 
 var (
@@ -10,9 +11,10 @@ var (
 )
 
 func initHttpClientConfig() {
-	Hc = &http.Client{Transport: &http.Transport{
-		MaxIdleConns:        1024,
-		MaxIdleConnsPerHost: 1024,
-		DisableKeepAlives:   !useKeepAlive,
-	}, Timeout: time.Second * time.Duration(timeoutSecond)}
+	Hc = &fasthttp.Client{
+		MaxConnsPerHost:     workerNum * 2,
+		ReadTimeout:         time.Second * time.Duration(timeoutSecond),
+		WriteTimeout:        time.Second * time.Duration(timeoutSecond),
+		MaxIdleConnDuration: 90 * time.Second,
+	}
 }

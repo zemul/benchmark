@@ -2,22 +2,22 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
 	"mime"
 	"mime/multipart"
-	"net/http"
 	"net/textproto"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/valyala/fasthttp"
 )
 
 type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
+	Do(req *fasthttp.Request, resp *fasthttp.Response) error
 }
 
 type CallOption struct {
@@ -29,34 +29,52 @@ type CallOption struct {
 	Header    map[string]string
 }
 
-func Head(url string, option *CallOption) (resp *http.Response, err error) {
-	request, err := http.NewRequest(http.MethodHead, url, nil)
+func Head(url string, option *CallOption) (resp *fasthttp.Response, err error) {
+	req := fasthttp.AcquireRequest()
+	resp = fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod("HEAD")
 	for k, v := range GetHeader() {
-		request.Header.Set(k, v)
+		req.Header.Set(k, v)
 	}
-	resp, err = Hc.Do(request)
+
+	err = Hc.Do(req, resp)
 	return
 }
 
-func Delete(url string, option *CallOption) (resp *http.Response, err error) {
-	request, err := http.NewRequest(http.MethodDelete, url, nil)
+func Delete(url string, option *CallOption) (resp *fasthttp.Response, err error) {
+	req := fasthttp.AcquireRequest()
+	resp = fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod("DELETE")
 	for k, v := range GetHeader() {
-		request.Header.Set(k, v)
+		req.Header.Set(k, v)
 	}
-	resp, err = Hc.Do(request)
+
+	err = Hc.Do(req, resp)
 	return
 }
 
-func Get(url string, option *CallOption) (resp *http.Response, err error) {
-	request, err := http.NewRequest(http.MethodGet, url, nil)
+func Get(url string, option *CallOption) (resp *fasthttp.Response, err error) {
+	req := fasthttp.AcquireRequest()
+	resp = fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(url)
+	req.Header.SetMethod("GET")
 	for k, v := range GetHeader() {
-		request.Header.Set(k, v)
+		req.Header.Set(k, v)
 	}
-	resp, err = Hc.Do(request)
+
+	err = Hc.Do(req, resp)
 	return
 }
 
-func upload_body(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *http.Response, err error) {
+func upload_body(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *fasthttp.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	if err = fillBufferFunction(buf); err != nil {
@@ -64,21 +82,23 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *CallOption)
 		return
 	}
 
-	req, postErr := http.NewRequest(option.Method, option.UploadUrl, bytes.NewReader(buf.Bytes()))
-	if postErr != nil {
-		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
-		return
-	}
+	req := fasthttp.AcquireRequest()
+	resp = fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(option.UploadUrl)
+	req.Header.SetMethod(option.Method)
+	req.SetBody(buf.Bytes())
 
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
 
-	resp, err = Hc.Do(req)
+	err = Hc.Do(req, resp)
 	return
 }
 
-func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *http.Response, err error) {
+func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *fasthttp.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	body_writer := multipart.NewWriter(buf)
@@ -106,26 +126,29 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOpti
 		log.Printf("error closing body %s\n", err.Error())
 		return resp, err
 	}
-	req, postErr := http.NewRequest("POST", option.UploadUrl, bytes.NewReader(buf.Bytes()))
-	if postErr != nil {
-		log.Printf("create upload request %s: %v\n", postErr)
-		err = fmt.Errorf("create upload request %s: %v", option.UploadUrl, postErr)
-		return
-	}
+
+	req := fasthttp.AcquireRequest()
+	resp = fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+
+	req.SetRequestURI(option.UploadUrl)
+	req.Header.SetMethod("POST")
 	req.Header.Set("Content-Type", content_type)
+	req.SetBody(buf.Bytes())
+
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
 
-	resp, err = Hc.Do(req)
+	err = Hc.Do(req, resp)
 	if err != nil {
-		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, option.UploadUrl, err)
+		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, len(buf.Bytes()), err)
 		return
 	}
 	return
 }
 
-func Upload(reader io.Reader, option *CallOption) (resp *http.Response, err error) {
+func Upload(reader io.Reader, option *CallOption) (resp *fasthttp.Response, err error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		err = fmt.Errorf("read input: %v", err)
@@ -153,10 +176,9 @@ func Upload(reader io.Reader, option *CallOption) (resp *http.Response, err erro
 	return
 }
 
-func CloseResponse(resp *http.Response) {
+func CloseResponse(resp *fasthttp.Response) {
 	if resp != nil {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		fasthttp.ReleaseResponse(resp)
 	}
 }
 

@@ -39,7 +39,7 @@ type stats struct {
 }
 
 type stat struct {
-	completed    int
+	completed    int64
 	failed       int
 	not2xx       int
 	total        int
@@ -73,9 +73,14 @@ func newStats(n int) *stats {
 }
 
 func (s *stats) addSample(method string, idx int, d time.Duration) {
-	index := int(d / benchBucket) // 耗时 d/100000
+	// 不建议移除锁,因为:
+	// 1. data和overflow是共享的map,多个goroutine并发写入会导致race condition
+	// 2. map的并发读写可能会panic
+	// 3. slice的并发append也不是线程安全的
 	s.Lock()
 	defer s.Unlock()
+
+	index := int(d / benchBucket) // 耗时 d/100000
 	if index < 0 {
 		fmt.Printf("This request takes %3.1f seconds, skipping!\n", float64(index)/10000)
 	} else if index < len(s.data[method]) { // 0.1 microsecond,精确到毫秒后一位，耗时1ms=index = 1000000 / 10000=10
@@ -89,8 +94,8 @@ func (s *stats) printStatsWithMethod(method string) {
 
 	completed, failed, transferred, total := 0, 0, int64(0), s.total
 	for _, localStat := range s.localStats[method] {
-		completed += localStat.completed
-		failed += localStat.failed
+		completed += int(localStat.completed)
+		failed += int(localStat.failed)
 		transferred += localStat.transferred
 		total += localStat.total
 		transferred += int64(localStat.reqtransfer)
@@ -187,12 +192,12 @@ func (s *stats) printStats() {
 	completed, failed, not2xx, transferred, total := 0, 0, 0, int64(0), s.total
 	for _, localStat := range s.localStats {
 		for i := range localStat {
-			completed += localStat[i].completed
-			failed += localStat[i].failed
-			not2xx += localStat[i].not2xx
+			completed += int(localStat[i].completed)
+			failed += int(localStat[i].failed)
+			not2xx += int(localStat[i].not2xx)
 			transferred += int64(localStat[i].reqtransfer)
 			transferred += int64(localStat[i].resptransfer)
-			total += localStat[i].total
+			total += int(localStat[i].total)
 		}
 	}
 	timeTaken := float64(int64(s.end.Sub(s.start))) / 1000000000
@@ -220,9 +225,9 @@ func (s *stats) checkProgress(testName string, finishChan chan bool) {
 			completed, transferred, _, total := 0, int64(0), t.Sub(lastTime), s.total
 			for _, localStat := range s.localStats {
 				for i := range localStat {
-					completed += localStat[i].completed
-					transferred += localStat[i].transferred
-					total += localStat[i].total
+					completed += int(localStat[i].completed)
+					transferred += int64(localStat[i].transferred)
+					total += int(localStat[i].total)
 				}
 			}
 			fmt.Printf("Completed %d requests\n",

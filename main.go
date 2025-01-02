@@ -13,10 +13,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/valyala/fasthttp"
 )
 
 var (
@@ -33,7 +35,10 @@ func main() {
 
 	checkRequiredFlags()
 	runtime.GOMAXPROCS(cpuNum)
+
+	// 初始化fasthttp客户端配置
 	initHttpClientConfig()
+
 	benchTest()
 }
 
@@ -49,7 +54,7 @@ func benchTest() {
 	finishChan := make(chan bool)
 	pathChan := make(chan Msg, 2000)
 	cancelChan := make(chan struct{})
-	Stats = newStats(workerNum)
+	Stats = newStats(workerNum * 2)
 	go ReadFileIds(pathChan, cancelChan, Stats)
 	for i := 0; i < workerNum; i++ {
 		wait.Add(1)
@@ -99,43 +104,44 @@ func ThreadTask(pathChan chan Msg, idx int) {
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for row := range pathChan {
-		var resp *http.Response
+		var resp *fasthttp.Response
 		var err error
 		start := time.Now()
 
 		resp, err = processRequest(row, random)
-		CloseResponse(resp)
 
 		if err == nil {
-			length, _ := strconv.Atoi(resp.Header.Get("Content-Length"))
+			length := resp.Header.ContentLength()
 			updateStats(row.method, idx, resp, length)
 		} else {
 			Stats.localStats[row.method][idx].failed++
 		}
+
+		CloseResponse(resp)
 		Stats.addSample(row.method, idx, time.Since(start))
 	}
 }
 
-func processRequest(row Msg, random *rand.Rand) (*http.Response, error) {
+func processRequest(row Msg, random *rand.Rand) (*fasthttp.Response, error) {
 	option := &CallOption{
 		Method: row.method,
 		Header: GetHeader(),
 	}
 	switch row.method {
-	case http.MethodGet:
+	case "GET":
 		return Get(row.url, option)
-	case http.MethodHead:
+	case "HEAD":
 		return Head(row.url, option)
-	case http.MethodDelete:
+	case "DELETE":
 		return Delete(row.url, option)
-	case http.MethodPost, http.MethodPut:
+	case "POST", "PUT":
 		return handleUpload(row, random)
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", row.method)
 	}
 }
 
-func handleUpload(row Msg, random *rand.Rand) (*http.Response, error) {
+func handleUpload(row Msg, random *rand.Rand) (*fasthttp.Response, error) {
 	var reader io.Reader
 	if bodyFile != "" {
 		reader = bytes.NewReader(body)
@@ -156,10 +162,10 @@ func handleUpload(row Msg, random *rand.Rand) (*http.Response, error) {
 	})
 }
 
-func updateStats(method string, idx int, resp *http.Response, length int) {
-	Stats.localStats[method][idx].completed++
+func updateStats(method string, idx int, resp *fasthttp.Response, length int) {
+	atomic.AddInt64(&Stats.localStats[method][idx].completed, 1)
 	Stats.localStats[method][idx].resptransfer += length
-	if resp.StatusCode > 299 {
+	if resp.StatusCode() > 299 {
 		Stats.localStats[method][idx].not2xx++
 		Stats.localStats[method][idx].failed++
 	}
@@ -267,3 +273,17 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 		}
 	}
 }
+
+// func initHttpClientConfig() {
+// 	tr := &http.Transport{
+// 		MaxIdleConnsPerHost: workerNum * 2,
+// 		IdleConnTimeout:     90 * time.Second,
+// 	}
+// 	if !useKeepAlive {
+// 		tr.DisableKeepAlives = true
+// 	}
+// 	Hc = &http.Client{
+// 		Transport: tr,
+// 		Timeout:   time.Duration(timeoutSecond) * time.Second,
+// 	}
+// }
