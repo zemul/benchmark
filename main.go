@@ -185,10 +185,11 @@ func readSingleUrl(pathChan chan Msg, cancelChan chan struct{}, stats *stats) {
 		url:    urlPath,
 	}
 
-	var timer *time.Timer
+	timerChan := make(<-chan time.Time)
 	if timelimit > 0 {
-		timer = time.NewTimer(time.Duration(timelimit) * time.Second)
+		timer := time.NewTimer(time.Duration(timelimit) * time.Second)
 		defer timer.Stop()
+		timerChan = timer.C
 	}
 
 	defer close(pathChan)
@@ -196,7 +197,7 @@ func readSingleUrl(pathChan chan Msg, cancelChan chan struct{}, stats *stats) {
 		select {
 		case <-cancelChan:
 			return
-		case <-timer.C:
+		case <-timerChan:
 			return
 		case pathChan <- msg:
 			stats.total++
@@ -228,10 +229,11 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 		})
 	}
 
-	var timer *time.Timer
+	timerChan := make(<-chan time.Time)
 	if timelimit > 0 {
-		timer = time.NewTimer(time.Duration(timelimit) * time.Second)
+		timer := time.NewTimer(time.Duration(timelimit) * time.Second)
 		defer timer.Stop()
+		timerChan = timer.C
 	}
 
 	defer close(pathChan)
@@ -239,7 +241,7 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 		select {
 		case <-cancelChan:
 			return
-		case <-timer.C:
+		case <-timerChan:
 			return
 		case pathChan <- Addrs[i%len(Addrs)]:
 			stats.total++
