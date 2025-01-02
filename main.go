@@ -52,7 +52,7 @@ func benchTest() {
 	}
 
 	finishChan := make(chan bool)
-	pathChan := make(chan Msg, 2000)
+	pathChan := make(chan Msg, workerNum*2)
 	cancelChan := make(chan struct{})
 	Stats = newStats(workerNum * 2)
 	go ReadFileIds(pathChan, cancelChan, Stats)
@@ -184,29 +184,22 @@ func readSingleUrl(pathChan chan Msg, cancelChan chan struct{}, stats *stats) {
 		method: method,
 		url:    urlPath,
 	}
-	defer close(pathChan)
 
-	if requests > 0 {
-		stats.total = requests
-		for i := 0; i < requests; i++ {
-			select {
-			case <-cancelChan:
-				return
-			case pathChan <- msg:
-			}
-		}
-		return
-	} else if timelimit > 0 {
-		timer := time.NewTimer(time.Duration(timelimit) * time.Second)
-		for {
-			select {
-			case <-timer.C:
-				return
-			case <-cancelChan:
-				return
-			case pathChan <- msg:
-				stats.total++
-			}
+	var timer *time.Timer
+	if timelimit > 0 {
+		timer = time.NewTimer(time.Duration(timelimit) * time.Second)
+		defer timer.Stop()
+	}
+
+	defer close(pathChan)
+	for i := 0; requests == 0 || i < requests; i++ {
+		select {
+		case <-cancelChan:
+			return
+		case <-timer.C:
+			return
+		case pathChan <- msg:
+			stats.total++
 		}
 	}
 }
@@ -215,9 +208,10 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 	Addrs := []Msg{}
 	f, err := os.Open(urlListFilePath)
 	if err != nil {
-		log.Fatalf("File to read file %s: %s\n", urlListFilePath, err)
+		log.Fatalf("Failed to read file %s: %s\n", urlListFilePath, err)
 	}
 	defer f.Close()
+
 	r := bufio.NewReader(f)
 	for {
 		line, _, err := r.ReadLine()
@@ -228,50 +222,30 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 		if len(raw) < 2 {
 			panic("illegal url")
 		}
-		msg := Msg{method: strings.ToUpper(raw[0]),
-			url: strings.Join(raw[1:], ""),
-		}
-		Addrs = append(Addrs, msg)
+		Addrs = append(Addrs, Msg{
+			method: strings.ToUpper(raw[0]),
+			url:    strings.Join(raw[1:], ""),
+		})
+	}
+
+	var timer *time.Timer
+	if timelimit > 0 {
+		timer = time.NewTimer(time.Duration(timelimit) * time.Second)
+		defer timer.Stop()
 	}
 
 	defer close(pathChan)
-	if requests > 0 {
-		stats.total = requests
-		for curr, idx := 0, 0; curr < stats.total; {
-			if idx >= len(Addrs) {
-				idx = 0
-			}
-			select {
-			case <-cancelChan:
-				return
-			case pathChan <- Addrs[idx]:
-				idx++
-				curr++
-			}
-		}
-	} else if timelimit > 0 {
-		timer := time.NewTimer(time.Duration(timelimit) * time.Second)
-		idx := 0
-		for {
-			select {
-			case <-timer.C:
-				return
-			case <-cancelChan:
-				return
-			default:
-				if idx >= len(Addrs) {
-					idx = 0
-				}
-				select {
-				case <-cancelChan:
-					return
-				case pathChan <- Addrs[idx]:
-					idx++
-					stats.total++
-				}
-			}
+	for i := 0; requests == 0 || i < requests; i++ {
+		select {
+		case <-cancelChan:
+			return
+		case <-timer.C:
+			return
+		case pathChan <- Addrs[i%len(Addrs)]:
+			stats.total++
 		}
 	}
+
 }
 
 // func initHttpClientConfig() {
