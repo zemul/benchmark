@@ -73,6 +73,9 @@ func GetHeader() map[string]string {
 	if contentType != "" {
 		headerCache["Content-Type"] = contentType
 	}
+	if !useKeepAlive {
+		headerCache["Connection"] = "close"
+	}
 	return headerCache
 }
 
