@@ -249,17 +249,3 @@ func readUrlsFromFile(pathChan chan Msg, cancelChan chan struct{}, stats *stats)
 	}
 
 }
-
-// func initHttpClientConfig() {
-// 	tr := &http.Transport{
-// 		MaxIdleConnsPerHost: workerNum * 2,
-// 		IdleConnTimeout:     90 * time.Second,
-// 	}
-// 	if !useKeepAlive {
-// 		tr.DisableKeepAlives = true
-// 	}
-// 	Hc = &http.Client{
-// 		Transport: tr,
-// 		Timeout:   time.Duration(timeoutSecond) * time.Second,
-// 	}
-// }
