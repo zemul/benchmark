@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"runtime"
 	"strings"
 )
 
@@ -32,7 +31,9 @@ var (
 
 func init() {
 	// base
-	flag.IntVar(&cpuNum, "cpu", runtime.NumCPU()/2, "maximum number of cpus")
+	// io密集任务无需开启多核，避免线程切换
+	// nginx等高性能服务开启多核可能测试结果更好
+	flag.IntVar(&cpuNum, "cpu", 1, "maximum number of CPUs")
 	flag.IntVar(&workerNum, "c", 1, "concurrent worker")
 	flag.IntVar(&requests, "n", 0, "number of requests to perform")
 	flag.IntVar(&timelimit, "t", 0, "seconds to max. to spend on benchmarking")

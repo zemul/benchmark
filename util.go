@@ -69,7 +69,6 @@ func Get(url string, option *CallOption) (resp *fasthttp.Response, err error) {
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
-
 	err = Hc.Do(req, resp)
 	return
 }
