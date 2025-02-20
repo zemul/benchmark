@@ -54,7 +54,7 @@ func init() {
 
 	flag.StringVar(&bodyFile, "b", "", "File containing data to Call")
 
-	flag.StringVar(&contentType, "content-type", "text/plain", "Content-type header to use for POST/PUT data, eg.'application/x-www-form-urlencoded'")
+	flag.StringVar(&contentType, "content-type", "", "Content-type header to use for POST/PUT data, eg.'application/x-www-form-urlencoded'")
 
 }
 
