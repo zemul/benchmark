@@ -29,7 +29,7 @@ type CallOption struct {
 	Header    map[string]string
 }
 
-func Head(url string, option *CallOption) (resp *fasthttp.Response, err error) {
+func Head(url string) (resp *fasthttp.Response, err error) {
 	req := fasthttp.AcquireRequest()
 	resp = fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)
@@ -44,7 +44,7 @@ func Head(url string, option *CallOption) (resp *fasthttp.Response, err error) {
 	return
 }
 
-func Delete(url string, option *CallOption) (resp *fasthttp.Response, err error) {
+func Delete(url string) (resp *fasthttp.Response, err error) {
 	req := fasthttp.AcquireRequest()
 	resp = fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)
@@ -54,12 +54,11 @@ func Delete(url string, option *CallOption) (resp *fasthttp.Response, err error)
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
-
 	err = Hc.Do(req, resp)
 	return
 }
 
-func Get(url string, option *CallOption) (resp *fasthttp.Response, err error) {
+func Get(url string) (resp *fasthttp.Response, err error) {
 	req := fasthttp.AcquireRequest()
 	resp = fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)

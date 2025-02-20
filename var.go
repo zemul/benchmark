@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"math/rand"
 	"strings"
+	"time"
 )
 
 var (
@@ -10,6 +12,7 @@ var (
 	workerNum int
 	requests  int
 	cpuNum    int
+	seed      = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// network
 	useKeepAlive  bool

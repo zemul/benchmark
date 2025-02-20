@@ -36,7 +36,6 @@ func main() {
 	checkRequiredFlags()
 	runtime.GOMAXPROCS(cpuNum)
 
-	// 初始化fasthttp客户端配置
 	initHttpClientConfig()
 
 	benchTest()
@@ -63,7 +62,6 @@ func benchTest() {
 	Stats.start = time.Now()
 	go Stats.checkProgress("Benchmark", finishChan)
 
-	// 等待完成或中断信号
 	done := make(chan struct{})
 	go func() {
 		wait.Wait()
@@ -75,9 +73,7 @@ func benchTest() {
 
 	select {
 	case <-done:
-		// 正常完成
 	case <-sigChan:
-		// Ctrl+C中断
 		close(cancelChan)
 	}
 
@@ -91,7 +87,9 @@ func benchTest() {
 		wait.Done()
 	}
 
-	Stats.printStats()
+	if bodyFile != "" {
+		Stats.printStats()
+	}
 	Stats.printStatsWithMethod(http.MethodHead)
 	Stats.printStatsWithMethod(http.MethodGet)
 	Stats.printStatsWithMethod(http.MethodPost)
@@ -101,14 +99,13 @@ func benchTest() {
 
 func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
-	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for row := range pathChan {
 		var resp *fasthttp.Response
 		var err error
 		start := time.Now()
 
-		resp, err = processRequest(row, random)
+		resp, err = processRequest(row)
 
 		if err == nil {
 			length := resp.Header.ContentLength()
@@ -122,35 +119,31 @@ func ThreadTask(pathChan chan Msg, idx int) {
 	}
 }
 
-func processRequest(row Msg, random *rand.Rand) (*fasthttp.Response, error) {
-	option := &CallOption{
-		Method: row.method,
-		Header: GetHeader(),
-	}
+func processRequest(row Msg) (*fasthttp.Response, error) {
 	switch row.method {
 	case "GET":
-		return Get(row.url, option)
+		return Get(row.url)
 	case "HEAD":
-		return Head(row.url, option)
+		return Head(row.url)
 	case "DELETE":
-		return Delete(row.url, option)
+		return Delete(row.url)
 	case "POST", "PUT":
-		return handleUpload(row, random)
+		return handleUpload(row)
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", row.method)
 	}
 }
 
-func handleUpload(row Msg, random *rand.Rand) (*fasthttp.Response, error) {
+func handleUpload(row Msg) (*fasthttp.Response, error) {
 	var reader io.Reader
 	if bodyFile != "" {
 		reader = bytes.NewReader(body)
 	} else {
-		size := int64(fileSizeMin + random.Intn(fileSizeMax-fileSizeMin))
+		size := int64(fileSizeMin + seed.Intn(fileSizeMax-fileSizeMin))
 		reader = &FakeReader{
 			id:     uint64(rand.Uint64()),
 			size:   size,
-			random: random,
+			random: seed,
 		}
 	}
 
