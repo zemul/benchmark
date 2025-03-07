@@ -44,18 +44,18 @@
 ### 1. 基于调用次数用法
 对目标 URL 进行并发测试1000次：
 ```bash
-./benchmark -c 10 -n 1000 -m GET http://example.com
+./benchmark -c 10 -n 1000  http://example.com
 ```
 ### 2. 基本调用时间用法
 对目标 URL 进行并发测试10秒：
 ```bash
-./benchmark -c 10 -t 10 -m GET http://example.com
+./benchmark -c 10 -t 10  http://example.com
 ```
 
 ### 2.使用 Keep-Alive
 对目标 URL 进行并发测试：
 ```bash
-./benchmark -c 10 -n 1000 -k -m GET http://example.com
+./benchmark -c 10 -n 1000 -k http://example.com
 ```
 
 ### 3.自定义请求头和请求体
