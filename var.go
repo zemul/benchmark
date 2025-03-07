@@ -33,7 +33,6 @@ var (
 )
 
 func init() {
-	// base
 	// io密集任务无需开启多核，避免线程切换
 	// nginx等高性能服务开启多核可能测试结果更好
 	flag.IntVar(&cpuNum, "cpu", 1, "maximum number of CPUs")
@@ -55,7 +54,6 @@ func init() {
 	flag.StringVar(&bodyFile, "b", "", "File containing data to Call")
 
 	flag.StringVar(&contentType, "content-type", "", "Content-type header to use for POST/PUT data, eg.'application/x-www-form-urlencoded'")
-
 }
 
 var headerCache map[string]string

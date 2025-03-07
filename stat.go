@@ -17,9 +17,6 @@ const (
 var Res = []string{http.MethodHead, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
 
 type stats struct {
-	//data       []int
-	//overflow   []int
-	//localStats []stat
 	start time.Time
 	end   time.Time
 	total int
@@ -29,13 +26,6 @@ type stats struct {
 
 	localStats map[string][]stat
 	sync.Mutex
-
-	//
-	//getStats []stat
-	//postStats []stat
-	//delStats []stat
-	//putStats []stat
-	//headStats []stat
 }
 
 type stat struct {
@@ -57,10 +47,8 @@ var percentages = []int{50, 66, 75, 80, 90, 95, 98, 99, 100}
 
 func newStats(n int) *stats {
 	v := &stats{
-		data:     make(map[string][]int),
-		overflow: make(map[string][]int),
-		//data:       make([]int, benchResolution),
-		//overflow:   make([]int, 0),
+		data:       make(map[string][]int),
+		overflow:   make(map[string][]int),
 		localStats: make(map[string][]stat)}
 
 	for _, res := range Res {
@@ -73,10 +61,6 @@ func newStats(n int) *stats {
 }
 
 func (s *stats) addSample(method string, idx int, d time.Duration) {
-	// 不建议移除锁,因为:
-	// 1. data和overflow是共享的map,多个goroutine并发写入会导致race condition
-	// 2. map的并发读写可能会panic
-	// 3. slice的并发append也不是线程安全的
 	s.Lock()
 	defer s.Unlock()
 
