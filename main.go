@@ -101,12 +101,8 @@ func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
 
 	for row := range pathChan {
-		var resp *fasthttp.Response
-		var err error
 		start := time.Now()
-
-		resp, err = processRequest(row)
-
+		resp, err := processRequest(row)
 		if err == nil {
 			length := resp.Header.ContentLength()
 			updateStats(row.method, idx, resp, length)
