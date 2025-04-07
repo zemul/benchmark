@@ -29,28 +29,8 @@ type CallOption struct {
 	Header    map[string]string
 }
 
-func Head(url string) (resp *fasthttp.Response, err error) {
-	req := fasthttp.AcquireRequest()
+func Call(req *fasthttp.Request) (resp *fasthttp.Response, err error) {
 	resp = fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-
-	req.SetRequestURI(url)
-	req.Header.SetMethod("HEAD")
-	for k, v := range GetHeader() {
-		req.Header.Set(k, v)
-	}
-
-	err = Hc.Do(req, resp)
-	return
-}
-
-func Delete(url string) (resp *fasthttp.Response, err error) {
-	req := fasthttp.AcquireRequest()
-	resp = fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-
-	req.SetRequestURI(url)
-	req.Header.SetMethod("DELETE")
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
@@ -58,21 +38,7 @@ func Delete(url string) (resp *fasthttp.Response, err error) {
 	return
 }
 
-func Get(url string) (resp *fasthttp.Response, err error) {
-	req := fasthttp.AcquireRequest()
-	resp = fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-
-	req.SetRequestURI(url)
-	req.Header.SetMethod("GET")
-	for k, v := range GetHeader() {
-		req.Header.Set(k, v)
-	}
-	err = Hc.Do(req, resp)
-	return
-}
-
-func upload_body(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *fasthttp.Response, err error) {
+func upload_body(req *fasthttp.Request, fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *fasthttp.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	if err = fillBufferFunction(buf); err != nil {
@@ -80,23 +46,17 @@ func upload_body(fillBufferFunction func(w io.Writer) error, option *CallOption)
 		return
 	}
 
-	req := fasthttp.AcquireRequest()
 	resp = fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-
-	req.SetRequestURI(option.UploadUrl)
-	req.Header.SetMethod(option.Method)
 	req.SetBody(buf.Bytes())
 
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
-
 	err = Hc.Do(req, resp)
 	return
 }
 
-func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *fasthttp.Response, err error) {
+func upload_content(req *fasthttp.Request, fillBufferFunction func(w io.Writer) error, option *CallOption) (resp *fasthttp.Response, err error) {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
 	body_writer := multipart.NewWriter(buf)
@@ -110,34 +70,28 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOpti
 		h.Set("Content-Type", option.MimeType)
 	}
 
-	file_writer, cp_err := body_writer.CreatePart(h)
-	if cp_err != nil {
-		log.Printf("error creating form file %s\n", cp_err.Error())
-		return resp, cp_err
+	fileWriter, cpErr := body_writer.CreatePart(h)
+	if cpErr != nil {
+		log.Printf("error creating form file %s\n", cpErr.Error())
+		return resp, cpErr
 	}
-	if err := fillBufferFunction(file_writer); err != nil {
+	if err := fillBufferFunction(fileWriter); err != nil {
 		log.Printf("error copying data %s\n", err.Error())
 		return resp, err
 	}
-	content_type := body_writer.FormDataContentType()
+	multipartContentType := body_writer.FormDataContentType()
 	if err = body_writer.Close(); err != nil {
 		log.Printf("error closing body %s\n", err.Error())
 		return resp, err
 	}
 
-	req := fasthttp.AcquireRequest()
-	resp = fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseRequest(req)
-
-	req.SetRequestURI(option.UploadUrl)
-	req.Header.SetMethod("POST")
-	req.Header.Set("Content-Type", content_type)
-	req.SetBody(buf.Bytes())
-
 	for k, v := range GetHeader() {
 		req.Header.Set(k, v)
 	}
 
+	req.Header.Set("Content-Type", multipartContentType)
+	req.SetBody(buf.Bytes())
+	resp = fasthttp.AcquireResponse()
 	err = Hc.Do(req, resp)
 	if err != nil {
 		err = fmt.Errorf("upload %s %d bytes to  %v", option.Filename, len(buf.Bytes()), err)
@@ -146,7 +100,7 @@ func upload_content(fillBufferFunction func(w io.Writer) error, option *CallOpti
 	return
 }
 
-func Upload(reader io.Reader, option *CallOption) (resp *fasthttp.Response, err error) {
+func Upload(req *fasthttp.Request, reader io.Reader, option *CallOption) (resp *fasthttp.Response, err error) {
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		err = fmt.Errorf("read input: %v", err)
@@ -154,12 +108,12 @@ func Upload(reader io.Reader, option *CallOption) (resp *fasthttp.Response, err 
 	}
 	for i := 0; i < 3; i++ {
 		if option.MimeType == "multipart/form-data" {
-			resp, err = upload_content(func(w io.Writer) (err error) {
+			resp, err = upload_content(req, func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
 		} else {
-			resp, err = upload_body(func(w io.Writer) (err error) {
+			resp, err = upload_body(req, func(w io.Writer) (err error) {
 				_, err = w.Write(data)
 				return
 			}, option)
@@ -174,7 +128,10 @@ func Upload(reader io.Reader, option *CallOption) (resp *fasthttp.Response, err 
 	return
 }
 
-func CloseResponse(resp *fasthttp.Response) {
+func CloseReqResponse(req *fasthttp.Request, resp *fasthttp.Response) {
+	if req != nil {
+		fasthttp.ReleaseRequest(req)
+	}
 	if resp != nil {
 		fasthttp.ReleaseResponse(resp)
 	}

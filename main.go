@@ -87,7 +87,7 @@ func benchTest() {
 		wait.Done()
 	}
 
-	if bodyFile != "" {
+	if urlListFilePath != "" {
 		Stats.printStats()
 	}
 	Stats.printStatsWithMethod(http.MethodHead)
@@ -95,42 +95,42 @@ func benchTest() {
 	Stats.printStatsWithMethod(http.MethodPost)
 	Stats.printStatsWithMethod(http.MethodPut)
 	Stats.printStatsWithMethod(http.MethodDelete)
+	time.Sleep(time.Second)
 }
 
 func ThreadTask(pathChan chan Msg, idx int) {
 	defer wait.Done()
 
 	for row := range pathChan {
+		req := fasthttp.AcquireRequest()
 		start := time.Now()
-		resp, err := processRequest(row)
+
+		resp, err := processRequest(req, row)
 		if err == nil {
-			length := resp.Header.ContentLength()
-			updateStats(row.method, idx, resp, length)
+			updateStats(row.method, idx, req, resp)
 		} else {
 			Stats.localStats[row.method][idx].failed++
 		}
 
-		CloseResponse(resp)
+		CloseReqResponse(req, resp)
 		Stats.addSample(row.method, idx, time.Since(start))
 	}
 }
 
-func processRequest(row Msg) (*fasthttp.Response, error) {
+func processRequest(req *fasthttp.Request, row Msg) (*fasthttp.Response, error) {
+	req.Header.SetMethod(row.method)
+	req.SetRequestURI(row.url)
 	switch row.method {
-	case "GET":
-		return Get(row.url)
-	case "HEAD":
-		return Head(row.url)
-	case "DELETE":
-		return Delete(row.url)
+	case "GET", "HEAD", "DELETE":
+		return Call(req)
 	case "POST", "PUT":
-		return handleUpload(row)
+		return handleUpload(req)
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", row.method)
 	}
 }
 
-func handleUpload(row Msg) (*fasthttp.Response, error) {
+func handleUpload(req *fasthttp.Request) (*fasthttp.Response, error) {
 	var reader io.Reader
 	if bodyFile != "" {
 		reader = bytes.NewReader(body)
@@ -143,20 +143,28 @@ func handleUpload(row Msg) (*fasthttp.Response, error) {
 		}
 	}
 
-	return Upload(reader, &CallOption{
-		Method:    row.method,
-		UploadUrl: row.url,
-		Filename:  filepath.Base(row.url),
-		MimeType:  contentType,
+	return Upload(req, reader, &CallOption{
+		Filename: filepath.Base(string(req.RequestURI())),
+		MimeType: contentType,
 	})
 }
 
-func updateStats(method string, idx int, resp *fasthttp.Response, length int) {
+func updateStats(method string, idx int, req *fasthttp.Request, resp *fasthttp.Response) {
 	atomic.AddInt64(&Stats.localStats[method][idx].completed, 1)
-	Stats.localStats[method][idx].resptransfer += length
 	if resp.StatusCode() > 299 {
 		Stats.localStats[method][idx].not2xx++
 		Stats.localStats[method][idx].failed++
+	}
+
+	// req
+	Stats.localStats[method][idx].reqtransfer += len(req.Header.Header()) + len(req.Body())
+
+	//resp
+	if resp.Header.ContentLength() >= 0 {
+		Stats.localStats[method][idx].resptransfer += len(resp.Header.Header()) + resp.Header.ContentLength()
+	} else {
+		// eg: Transfer-Encoding: chunked
+		Stats.localStats[method][idx].resptransfer += len(resp.Header.Header()) + len(resp.Body())
 	}
 }
 

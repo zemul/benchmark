@@ -76,10 +76,11 @@ func (s *stats) addSample(method string, idx int, d time.Duration) {
 
 func (s *stats) printStatsWithMethod(method string) {
 
-	completed, failed, transferred, total := 0, 0, int64(0), s.total
+	completed, failed, not2xx, transferred, total := 0, 0, 0, int64(0), s.total
 	for _, localStat := range s.localStats[method] {
 		completed += int(localStat.completed)
 		failed += int(localStat.failed)
+		not2xx += int(localStat.not2xx)
 		transferred += localStat.transferred
 		total += localStat.total
 		transferred += int64(localStat.reqtransfer)
@@ -94,6 +95,7 @@ func (s *stats) printStatsWithMethod(method string) {
 	fmt.Printf("Time taken for tests:   %.3f seconds\n", timeTaken)
 	fmt.Printf("Complete requests:      %d\n", completed)
 	fmt.Printf("Failed requests:        %d\n", failed)
+	fmt.Printf("Failed requests(not 2xx):        %d\n", not2xx)
 	fmt.Printf("Total transferred:      %d bytes\n", transferred)
 	fmt.Printf("Requests per second:    %.2f [#/sec]\n", float64(completed)/timeTaken)
 	fmt.Printf("Transfer rate:          %.2f [Kbytes/sec]\n", float64(transferred)/1024/timeTaken)
@@ -199,26 +201,22 @@ func (s *stats) printStats() {
 func (s *stats) checkProgress(testName string, finishChan chan bool) {
 	fmt.Printf("\n------------ %s ----------\n", testName)
 	ticker := time.Tick(time.Second)
-	lastTime := time.Now()
 	for {
 		select {
 		case <-finishChan:
 			wait.Done()
 			return
-		case t := <-ticker:
-			completed, transferred, _, total := 0, int64(0), t.Sub(lastTime), s.total
+		case <-ticker:
+			completed := 0
 			for _, localStat := range s.localStats {
 				for i := range localStat {
 					completed += int(localStat[i].completed)
-					transferred += int64(localStat[i].transferred)
-					total += int(localStat[i].total)
 				}
 			}
 			fmt.Printf("Completed %d requests\n",
 				completed,
 			)
 
-			lastTime = t
 		}
 	}
 }

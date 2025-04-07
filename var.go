@@ -45,7 +45,7 @@ func init() {
 	flag.Int64Var(&timeoutSecond, "s", 30, "Seconds to max. wait for each response")
 
 	// request
-	flag.StringVar(&method, "m", "GET", "Http call method, options[POST, PUT]")
+	flag.StringVar(&method, "m", "GET", "Http call method, options[HEAD,GET,POST,PUT,DELETE]")
 	flag.Var(&headers, "H", "Custom header eg: 'Accept-Encoding: gzip'")
 	flag.IntVar(&fileSizeMin, "min", 10, "body minlength (byte)")
 	flag.IntVar(&fileSizeMax, "max", 100, "body maxlength (byte)")
